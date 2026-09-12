@@ -263,8 +263,10 @@ function render() {
   }
 
   renderPlan(origin);
+  const build = document.querySelector('meta[name="build"]')?.content || "dev";
   el("provenance").textContent =
-    `${state.bundle.places.length} destinations · road costs baked ${(state.bundle.generatedAt || "").slice(0, 10)}`;
+    `${state.bundle.places.length} destinations · road costs baked ` +
+    `${(state.bundle.generatedAt || "").slice(0, 10)} · build ${build}`;
 }
 
 function renderViaHandoff(origin, rows) {

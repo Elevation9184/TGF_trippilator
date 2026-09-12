@@ -9,7 +9,7 @@
  * Bump CACHE when publishing a new bundle. Old caches are removed on activate.
  */
 
-const CACHE = "tgo-v3";
+const CACHE = "tgo-20260913-0002";
 const ASSETS = [
   "./",
   "./index.html",
