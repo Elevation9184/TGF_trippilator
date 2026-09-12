@@ -56,6 +56,7 @@ async function load() {
   state.base = readStore(STORE_BASE, null);
   state.visits = new Map(Object.entries(readStore(STORE_VISITS, {})));
   state.plan = readStore(STORE_PLAN, []).filter((id) => state.byId.has(id));
+  state.order = "detour";
 }
 
 function sortedPlaces() {
@@ -165,7 +166,7 @@ function resultRow(row, index) {
   const score = row.score != null ? `<span class="score">${row.score.toFixed(2)}</span>` : "";
 
   item.innerHTML = `
-    <div class="rank">${index + 1}</div>
+    <div class="rank">${row.detourKm != null && state.order === "route" ? "" : index + 1}</div>
     <div class="figure">${primary}</div>
     <div class="body">
       <div class="name">${place.name} ${score}</div>
@@ -201,6 +202,7 @@ function render() {
   }
 
   const count = Number(el("count").value);
+  state.order = el("order").value;
   const filters = currentFilters();
   let rows = [];
 
@@ -218,7 +220,7 @@ function render() {
     // is what is being ranked and what the driver actually pays.
     rows = engine.onTheWay(
       state.bundle.places, origin, destination, count, state.model,
-      { ...filters, maxKm: null }, state.visits, filters.maxKm
+      { ...filters, maxKm: null }, state.visits, filters.maxKm, el("order").value
     );
   }
 
@@ -315,12 +317,13 @@ function wire() {
       button.classList.add("is-active");
       state.mode = button.dataset.mode;
       el("destination-field").hidden = state.mode !== "via";
+      el("order-field").hidden = state.mode !== "via";
       updateRangeLabel();
       render();
     });
   });
 
-  ["origin", "destination", "count", "festival", "entry-type", "anchor", "hide-visited", "return-home"]
+  ["origin", "destination", "order", "count", "festival", "entry-type", "anchor", "hide-visited", "return-home"]
     .forEach((id) => el(id).addEventListener("change", render));
   document.querySelectorAll("[data-amenity]").forEach((box) => box.addEventListener("change", render));
 

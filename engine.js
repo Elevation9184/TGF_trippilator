@@ -29,6 +29,12 @@ export const MIN_INTEREST = 1.0;
 export const MAX_INTEREST = 10.0;
 export const DEFAULT_VISIT_MINUTES = 45.0;
 
+// Ordering for "on the way". Cheapest answers "is it worth stopping?";
+// route order answers "when will I reach it?", which is what you want once
+// the detour budget has already decided the shortlist.
+export const BY_DETOUR = "detour";
+export const BY_ROUTE = "route";
+
 export const BOTH = "Both";
 export const ALL = "All";
 
@@ -242,7 +248,7 @@ export function recommend(places, origin, count, model, filters, state, weights 
  * measure is the extra distance a stop adds to the journey you were making
  * anyway.
  */
-export function onTheWay(places, origin, destination, count, model, filters, state, maxDetourKm) {
+export function onTheWay(places, origin, destination, count, model, filters, state, maxDetourKm, order = BY_DETOUR) {
   const baseline = model.from(origin, destination);
   const rows = [];
   for (const place of eligible(places, filters, state)) {
@@ -260,7 +266,12 @@ export function onTheWay(places, origin, destination, count, model, filters, sta
     });
   }
   rows.sort((a, b) => a.detourKm - b.detourKm || (a.place.id < b.place.id ? -1 : 1));
-  return rows.slice(0, Math.max(0, count));
+  const chosen = rows.slice(0, Math.max(0, count));
+  if (order === BY_ROUTE) {
+    // Still the cheapest `count`, but shown in the order they are passed.
+    chosen.sort((a, b) => a.estimate.roadKm - b.estimate.roadKm || (a.place.id < b.place.id ? -1 : 1));
+  }
+  return chosen;
 }
 
 function sequenceKm(order, origin, model, byId, returnsToStart) {
