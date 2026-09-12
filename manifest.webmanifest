@@ -1,0 +1,14 @@
+{
+  "name": "Taranaki Garden Optimiser",
+  "short_name": "Gardens",
+  "description": "Plan and navigate the Taranaki Garden Festival, offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbfcfb",
+  "theme_color": "#2f5d3a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

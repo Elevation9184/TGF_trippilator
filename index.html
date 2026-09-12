@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en-NZ">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#2f5d3a" />
+    <!-- Shared by link, not by search. This is obscurity, not access control. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Taranaki Garden Optimiser</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" />
+  </head>
+  <body>
+    <header>
+      <h1>Taranaki Garden Optimiser</h1>
+      <button id="base-button" class="base" type="button">Set start point</button>
+    </header>
+
+    <nav class="modes" role="tablist">
+      <button class="mode is-active" data-mode="nearest" role="tab">Nearest</button>
+      <button class="mode" data-mode="recommend" role="tab">Best picks</button>
+      <button class="mode" data-mode="via" role="tab">On the way</button>
+      <button class="mode" data-mode="route" role="tab">My day</button>
+    </nav>
+
+    <section class="controls">
+      <div class="row">
+        <label>
+          Starting from
+          <select id="origin"></select>
+        </label>
+        <label id="destination-field" hidden>
+          Heading to
+          <select id="destination"></select>
+        </label>
+        <label class="narrow">
+          How many
+          <select id="count">
+            <option>5</option>
+            <option>10</option>
+            <option>15</option>
+            <option>20</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <label>
+          Festival
+          <select id="festival">
+            <option value="Both">Both</option>
+            <option value="Centuria">Centuria</option>
+            <option value="Fringe">Fringe</option>
+          </select>
+        </label>
+        <label>
+          Type
+          <select id="entry-type">
+            <option value="All">All</option>
+            <option value="Garden">Gardens</option>
+            <option value="Place of interest">Places of interest</option>
+          </select>
+        </label>
+        <label>
+          Size
+          <select id="anchor">
+            <option value="">Any</option>
+            <option value="Daily anchor">Major (half-day)</option>
+            <option value="Support">Worth a stop</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="grow">
+          Within <output id="max-km-value">no limit</output>
+          <input id="max-km" type="range" min="0" max="100" step="5" value="0" />
+        </label>
+        <label class="check">
+          <input id="hide-visited" type="checkbox" checked />
+          Hide ones I've seen
+        </label>
+      </div>
+
+      <div class="row amenities">
+        <span class="amenity-label">Prefer</span>
+        <label class="chip">Refreshments <input type="checkbox" data-amenity="Refreshments" /></label>
+        <label class="chip">Toilets <input type="checkbox" data-amenity="Toilets" /></label>
+        <label class="chip">Plants <input type="checkbox" data-amenity="Plants for Sale" /></label>
+        <label class="chip">Accessible <input type="checkbox" data-amenity="Accessibility" /></label>
+      </div>
+    </section>
+
+    <section id="plan" class="plan" hidden>
+      <div class="plan-head">
+        <strong>Today's plan</strong>
+        <label class="check">
+          <input id="return-home" type="checkbox" checked />
+          Return to start
+        </label>
+        <button id="clear-plan" type="button" class="link">Clear</button>
+      </div>
+      <ol id="plan-list" class="plan-list"></ol>
+      <p id="plan-summary" class="summary"></p>
+      <button id="navigate" type="button" class="primary" hidden>Open in Google Maps</button>
+    </section>
+
+    <p id="status" class="status"></p>
+    <ul id="results" class="results"></ul>
+
+    <footer>
+      <p class="note">
+        Your ratings, visits and plan live only in this browser. Export a spreadsheet to
+        rate them in Excel, move them to another device, or send them back to the workbook.
+      </p>
+      <div class="row footer-actions">
+        <button id="export" type="button">Export notes (CSV)</button>
+        <label class="import">Import notes<input id="import" type="file" accept=".csv,.json,text/csv,application/json" /></label>
+      </div>
+      <span id="provenance"></span>
+      <p class="note credits">
+        Garden listings from the
+        <a href="https://www.gardenfestnz.co.nz/gardens" rel="noopener">Centuria Taranaki Garden Festival</a>
+        and the
+        <a href="https://www.taranakigardens.co.nz/gardens-and-map/" rel="noopener">Taranaki Fringe Garden Festival</a>.
+        Coordinates and road distances derived from
+        <a href="https://www.openstreetmap.org/copyright" rel="noopener">© OpenStreetMap contributors</a>,
+        available under the <a href="https://opendatacommons.org/licenses/odbl/" rel="noopener">ODbL</a>.
+        Distances are estimates; check opening days with the festival before travelling.
+      </p>
+    </footer>
+
+    <dialog id="base-dialog">
+      <form method="dialog">
+        <h2>Where are you starting from?</h2>
+        <p class="note">
+          This stays on your device. It is never uploaded, and is not part of the
+          published data — everyone using this link sets their own.
+        </p>
+        <button id="use-gps" type="button" class="primary">Use my current location</button>
+        <label>
+          Or start from a garden
+          <select id="base-place"></select>
+        </label>
+        <details>
+          <summary>Or enter coordinates</summary>
+          <div class="row">
+            <label>Latitude <input id="base-lat" type="number" step="any" placeholder="-39.06" /></label>
+            <label>Longitude <input id="base-lon" type="number" step="any" placeholder="174.07" /></label>
+          </div>
+        </details>
+        <p id="base-status" class="note"></p>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="base-save" value="save" class="primary">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+# This repository holds generated files only, so there is little to exclude
+# beyond the rubbish operating systems leave behind.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp

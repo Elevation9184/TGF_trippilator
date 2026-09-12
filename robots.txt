@@ -1,0 +1,4 @@
+# Not secret, just not advertised. Keeps the app out of search results so the
+# link only reaches people who were given it.
+User-agent: *
+Disallow: /

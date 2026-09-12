@@ -1,0 +1,260 @@
+/* Sized for a phone held one-handed in a car park, and still sane on a laptop. */
+:root {
+  --ink: #1b2420;
+  --muted: #5d6b63;
+  --line: #d8e0da;
+  --paper: #fbfcfb;
+  --card: #ffffff;
+  --green: #2f5d3a;
+  --centuria: #7a3e9d;
+  --fringe: #1f6f8b;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e6ece8;
+    --muted: #9fb0a6;
+    --line: #2c3832;
+    --paper: #151a17;
+    --card: #1d2521;
+    --green: #7cc08f;
+    --centuria: #c79bea;
+    --fringe: #79c6de;
+  }
+}
+* { box-sizing: border-box; }
+/* A CSS display rule beats the hidden attribute, so state it explicitly. */
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  padding: 0 0 3rem;
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--green);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+@media (prefers-color-scheme: dark) {
+  header { color: #0f1512; }
+}
+h1 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+.base {
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modes { display: flex; gap: 0.25rem; padding: 0.5rem 1rem 0; overflow-x: auto; }
+.mode {
+  flex: 1 0 auto;
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mode.is-active { color: var(--ink); border-bottom-color: var(--green); font-weight: 600; }
+.controls { padding: 0.75rem 1rem; display: grid; gap: 0.6rem; }
+.row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: end; }
+.row > label { display: grid; gap: 0.2rem; font-size: 0.76rem; color: var(--muted); flex: 1 1 8rem; }
+.row > label.narrow { flex: 0 0 5.5rem; }
+.row > label.grow { flex: 2 1 12rem; }
+select,
+input[type="number"] {
+  font: inherit;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+input[type="range"] { width: 100%; accent-color: var(--green); }
+.check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+.amenities { align-items: center; gap: 0.4rem; }
+.amenity-label { font-size: 0.76rem; color: var(--muted); }
+/* More specific than `.row > label`, which would otherwise stack these. */
+.row > label.chip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  background: var(--card);
+  cursor: pointer;
+}
+.row > label.chip input { margin: 0; }
+.row > label.chip:has(input:checked) { border-color: var(--green); color: var(--green); font-weight: 600; }
+.status { margin: 0; padding: 0 1rem; font-size: 0.8rem; color: var(--muted); min-height: 1.2em; }
+.results { list-style: none; margin: 0.5rem 0 0; padding: 0 1rem; display: grid; gap: 0.5rem; }
+.result {
+  display: grid;
+  grid-template-columns: 1.4rem 5rem 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+}
+.result.is-visited { opacity: 0.55; }
+.rank { color: var(--muted); font-size: 0.8rem; text-align: right; }
+.figure { display: grid; text-align: right; }
+.metric { font-weight: 600; font-variant-numeric: tabular-nums; }
+.sub, .region { font-size: 0.72rem; color: var(--muted); }
+.name { font-weight: 600; line-height: 1.25; }
+.meta { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-top: 0.15rem; }
+.tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid currentColor;
+}
+.tag-centuria { color: var(--centuria); }
+.tag-fringe { color: var(--fringe); }
+.tag-both { color: var(--green); }
+.tag-anchor { color: var(--muted); }
+.score { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Labelled rather than iconic: nobody should have to guess in a car park. */
+.actions { display: flex; flex-direction: column; gap: 0.2rem; }
+.actions button,
+.actions a {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 8px;
+  min-width: 3.6rem;
+  min-height: 1.7rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.actions button.is-on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+.plan {
+  margin: 0.5rem 1rem;
+  padding: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.plan-head { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; }
+.plan-list { list-style: none; margin: 0.5rem 0; padding: 0; display: grid; gap: 0.2rem; }
+.leg { font-size: 0.78rem; color: var(--muted); }
+.stop { display: flex; gap: 0.5rem; align-items: baseline; }
+.stay { font-size: 0.78rem; color: var(--muted); min-width: 7rem; }
+.stop .to { font-weight: 600; }
+.summary { font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0; }
+.primary {
+  background: var(--green);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) {
+  .primary { color: #0f1512; }
+  .actions button.is-on { color: #0f1512; }
+}
+.link { background: none; border: 0; color: var(--green); cursor: pointer; font: inherit; text-decoration: underline; }
+footer { padding: 1rem; font-size: 0.72rem; color: var(--muted); text-align: center; }
+dialog {
+  border: 0;
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  max-width: 26rem;
+  width: calc(100% - 2rem);
+  background: var(--card);
+  color: var(--ink);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+dialog h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+dialog form { display: grid; gap: 0.7rem; }
+dialog label { display: grid; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
+.note { font-size: 0.78rem; color: var(--muted); margin: 0; }
+menu { display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0.5rem 0 0; padding: 0; }
+menu button {
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+@media (max-width: 420px) {
+  .result { grid-template-columns: 4.5rem 1fr auto; }
+  .rank { display: none; }
+}
+
+/* Rating sits with the other facts about a place, not in the action column. */
+.rate {
+  font: inherit;
+  font-size: 0.72rem;
+  width: auto;
+  padding: 0.05rem 0.2rem;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.rate.is-rated {
+  border-style: solid;
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+}
+footer { display: grid; gap: 0.5rem; justify-items: center; }
+.footer-actions { justify-content: center; }
+.footer-actions button,
+.import {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.import input { display: none; }
+
+.credits { max-width: 34rem; text-align: center; line-height: 1.5; }
+.credits a { color: var(--muted); }
