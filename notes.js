@@ -15,7 +15,7 @@ export const COLUMNS = [
   "Name",
   "Festival",
   "Region",
-  "Interest",
+  "Interest (1 low - 10 best)",
   "Must Visit",
   "Visited",
   "Visit Date",
@@ -25,6 +25,11 @@ export const COLUMNS = [
 // Only these come back in. Name and region are context for the human editing
 // the file; changing them there must not silently rewrite the dataset.
 const EDITABLE = new Set(["Interest", "Must Visit", "Visited", "Visit Date", "Notes"]);
+
+/** "Interest (1-10, 10 = best)" and "Interest" are the same column. */
+function headingKey(name) {
+  return String(name ?? "").split("(")[0].trim();
+}
 
 const RISKY_PREFIX = /^[=+\-@\t\r]/;
 
@@ -39,8 +44,45 @@ function quote(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+
+// The workbook validates this column to exactly these three, so a typo must be
+// refused rather than written through. The engine tests for "Yes", which means
+// an unnoticed "Yess" would otherwise silently mean "no".
+const MUST_VISIT = new Map([
+  ["yes", "Yes"], ["y", "Yes"],
+  ["maybe", "Maybe"], ["m", "Maybe"],
+  ["no", "No"], ["n", "No"],
+]);
+
+// Excel rewrites an ISO date into local format on save, so day-first forms have
+// to be accepted coming back. New Zealand writes the day first: 03/04 is 3 April.
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DAY_FIRST = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/;
+
+function isRealDate(year, month, day) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  );
+}
+
+function normaliseDate(value) {
+  const iso = ISO_DATE.exec(value);
+  if (iso) return isRealDate(+iso[1], +iso[2], +iso[3]) ? value : null;
+  const parts = DAY_FIRST.exec(value.split(" ")[0]);
+  if (!parts) return null;
+  const day = Number(parts[1]);
+  const month = Number(parts[2]);
+  const year = Number(parts[3]);
+  if (!isRealDate(year, month, day)) return null;
+  return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+}
+
 export function toCsv(places, visits) {
-  const lines = [COLUMNS.join(",")];
+  const lines = [COLUMNS.map(quote).join(",")];
   for (const place of [...places].sort((a, b) => a.name.localeCompare(b.name))) {
     const visit = visits.get(place.id) || {};
     lines.push(
@@ -119,7 +161,7 @@ export function fromCsv(text, knownIds) {
   const rows = parseCsv(text);
   if (!rows.length) return { notes: {}, unknown: [], rejected: [] };
 
-  const header = rows[0].map((cell) => cleanValue(cell));
+  const header = rows[0].map((cell) => headingKey(cleanValue(cell)));
   const index = Object.fromEntries(header.map((name, position) => [name, position]));
   if (index["Place ID"] === undefined) {
     return { notes: {}, unknown: [], rejected: ["no 'Place ID' column"] };
@@ -138,7 +180,8 @@ export function fromCsv(text, knownIds) {
     }
 
     const entry = {};
-    for (const column of COLUMNS) {
+    for (const heading of COLUMNS) {
+      const column = headingKey(heading);
       if (!EDITABLE.has(column) || index[column] === undefined) continue;
       const value = cleanValue(row[index[column]]);
       if (value === "") continue;
@@ -152,9 +195,21 @@ export function fromCsv(text, knownIds) {
         entry.interest = number;
       } else if (column === "Visited") {
         entry.visited = /^y(es)?$|^true$|^1$/i.test(value);
-      } else if (column === "Visit Date") entry.visitedOn = value;
-      else if (column === "Must Visit") entry.mustVisit = value;
-      else if (column === "Notes") entry.note = value;
+      } else if (column === "Visit Date") {
+        const date = normaliseDate(value);
+        if (date === null) {
+          rejected.push(`${id}: visit date ${value}`);
+          continue;
+        }
+        entry.visitedOn = date;
+      } else if (column === "Must Visit") {
+        const setting = MUST_VISIT.get(value.toLowerCase());
+        if (!setting) {
+          rejected.push(`${id}: must visit ${value}`);
+          continue;
+        }
+        entry.mustVisit = setting;
+      } else if (column === "Notes") entry.note = value;
     }
     if (Object.keys(entry).length) notes[id] = entry;
   }

@@ -128,6 +128,12 @@ function download(name, text, type) {
   URL.revokeObjectURL(link.href);
 }
 
+/** A detour of a few metres is measurement noise, not a cost worth showing. */
+function formatDetour(km) {
+  if (Math.abs(km) < 0.05) return "free";
+  return `${km > 0 ? "+" : "−"}${Math.abs(km).toFixed(1)} km`;
+}
+
 function mapsLink(place) {
   return `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
 }
@@ -141,15 +147,18 @@ function resultRow(row, index) {
 
   const primary =
     row.detourKm != null
-      ? `<span class="metric">+${row.detourKm.toFixed(1)} km</span><span class="sub">${row.estimate.roadKm.toFixed(0)} out · ${row.onward.roadKm.toFixed(0)} on</span>`
+      ? `<span class="metric">${formatDetour(row.detourKm)}</span><span class="sub">${row.estimate.roadKm.toFixed(0)} out · ${row.onward.roadKm.toFixed(0)} on</span>`
       : `<span class="metric">${row.estimate.roadKm.toFixed(1)} km</span><span class="sub">${Math.round(row.estimate.minutes)} min</span>`;
 
   const festival = place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase();
   const inPlan = state.plan.includes(place.id);
   const rating = visit.interest ?? place.interest ?? "";
+  // Labelling both ends, because a scale whose direction you have to guess
+  // invites a whole set of inverted ratings.
+  const SCALE = { "": "rate", 1: "1 low", 5: "5 neutral", 10: "10 top" };
   const options = ["", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     .map((value) => {
-      const label = value === "" ? "rate" : value;
+      const label = SCALE[value] ?? value;
       return `<option value="${value}"${String(value) === String(rating) ? " selected" : ""}>${label}</option>`;
     })
     .join("");
@@ -205,8 +214,11 @@ function render() {
       status.textContent = "Choose where you are heading.";
       return;
     }
+    // The cap means the detour here, not the distance out, because the detour
+    // is what is being ranked and what the driver actually pays.
     rows = engine.onTheWay(
-      state.bundle.places, origin, destination, count, state.model, filters, state.visits, null
+      state.bundle.places, origin, destination, count, state.model,
+      { ...filters, maxKm: null }, state.visits, filters.maxKm
     );
   }
 
@@ -282,6 +294,12 @@ function renderPlan(origin) {
   };
 }
 
+function updateRangeLabel() {
+  const value = Number(el("max-km").value);
+  el("max-km-label").textContent = state.mode === "via" ? "Detour under" : "Within";
+  el("max-km-value").textContent = value > 0 ? `${value} km` : "no limit";
+}
+
 function togglePlan(id) {
   const index = state.plan.indexOf(id);
   if (index >= 0) state.plan.splice(index, 1);
@@ -297,6 +315,7 @@ function wire() {
       button.classList.add("is-active");
       state.mode = button.dataset.mode;
       el("destination-field").hidden = state.mode !== "via";
+      updateRangeLabel();
       render();
     });
   });
@@ -306,8 +325,7 @@ function wire() {
   document.querySelectorAll("[data-amenity]").forEach((box) => box.addEventListener("change", render));
 
   el("max-km").addEventListener("input", () => {
-    const value = Number(el("max-km").value);
-    el("max-km-value").textContent = value > 0 ? `${value} km` : "no limit";
+    updateRangeLabel();
     render();
   });
 
@@ -431,6 +449,7 @@ load()
     fillPlaceSelect(el("destination"), { includeBase: true });
     if (state.base) el("base-button").textContent = state.base.name;
     wire();
+    updateRangeLabel();
     render();
   })
   .catch((error) => {
