@@ -129,6 +129,27 @@ function download(name, text, type) {
   URL.revokeObjectURL(link.href);
 }
 
+// Google's directions URL takes at most nine intermediate stops.
+const MAX_WAYPOINTS = 9;
+
+/**
+ * Hand an ordered run to Google Maps: start, the chosen stops, destination.
+ *
+ * "My day" cannot do this job, because it routes from your base and optionally
+ * loops home. A journey collected on the way has its own two endpoints, and
+ * losing them turns a drive north into a round trip.
+ */
+function openInMaps(start, stops, finish) {
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("origin", `${start.lat},${start.lon}`);
+  url.searchParams.set("destination", `${finish.lat},${finish.lon}`);
+  if (stops.length) {
+    url.searchParams.set("waypoints", stops.map((p) => `${p.lat},${p.lon}`).join("|"));
+  }
+  window.open(url.toString(), "_blank", "noopener");
+}
+
 /** A detour of a few metres is measurement noise, not a cost worth showing. */
 function formatDetour(km) {
   if (Math.abs(km) < 0.05) return "free";
@@ -198,6 +219,7 @@ function render() {
   const origin = originFrom(el("origin"));
   if (!origin) {
     status.textContent = "Set a start point to begin.";
+    el("via-handoff").hidden = true;
     return;
   }
 
@@ -232,7 +254,9 @@ function render() {
       status.textContent = `${rows.length} shown · ${source}`;
     }
     rows.forEach((row, index) => results.append(resultRow(row, index)));
+    renderViaHandoff(origin, rows);
   } else {
+    el("via-handoff").hidden = true;
     status.textContent = state.plan.length
       ? ""
       : "Add gardens from any other tab, then come back here.";
@@ -241,6 +265,39 @@ function render() {
   renderPlan(origin);
   el("provenance").textContent =
     `${state.bundle.places.length} destinations · road costs baked ${(state.bundle.generatedAt || "").slice(0, 10)}`;
+}
+
+function renderViaHandoff(origin, rows) {
+  const panel = el("via-handoff");
+  if (state.mode !== "via") {
+    panel.hidden = true;
+    return;
+  }
+  const destination = originFrom(el("destination"));
+  // Only the stops actually chosen, kept in the order they are passed.
+  const chosen = rows
+    .filter((row) => state.plan.includes(row.place.id))
+    .sort((a, b) => a.estimate.roadKm - b.estimate.roadKm)
+    .map((row) => row.place);
+
+  panel.hidden = false;
+  const extra = chosen.reduce((sum, place) => {
+    const row = rows.find((r) => r.place.id === place.id);
+    return sum + Math.max(0, row.detourKm);
+  }, 0);
+
+  if (!chosen.length) {
+    el("via-summary").textContent = "Add stops with + Plan, then send the run to Google Maps.";
+    el("via-navigate").disabled = true;
+  } else {
+    const over = chosen.length > MAX_WAYPOINTS;
+    el("via-summary").textContent =
+      `${chosen.length} stop(s), ${extra.toFixed(1)} km extra` +
+      (over ? ` — Google takes ${MAX_WAYPOINTS}, so the last ${chosen.length - MAX_WAYPOINTS} are left off.` : "");
+    el("via-navigate").disabled = false;
+    el("via-navigate").onclick = () =>
+      openInMaps(origin, chosen.slice(0, MAX_WAYPOINTS), destination);
+  }
 }
 
 function renderPlan(origin) {
@@ -282,17 +339,10 @@ function renderPlan(origin) {
     `${route.places.length} stops · ${route.totalKm.toFixed(1)} km · ${Math.round(route.travelMinutes)} min driving · ${hours} hours all up`;
   el("navigate").hidden = false;
   el("navigate").onclick = () => {
-    // The app plans; the phone navigates. Hand the ordered stops to Google Maps.
-    const points = route.places.map((p) => `${p.lat},${p.lon}`);
-    const destination = el("return-home").checked && state.base
-      ? `${state.base.lat},${state.base.lon}`
-      : points.pop();
-    const url = new URL("https://www.google.com/maps/dir/");
-    url.searchParams.set("api", "1");
-    url.searchParams.set("origin", `${origin.lat},${origin.lon}`);
-    url.searchParams.set("destination", destination);
-    if (points.length) url.searchParams.set("waypoints", points.join("|"));
-    window.open(url.toString(), "_blank", "noopener");
+    // The app plans; the phone navigates.
+    const stops = [...route.places];
+    const finish = el("return-home").checked ? origin : stops.pop();
+    openInMaps(origin, stops.slice(0, MAX_WAYPOINTS), finish);
   };
 }
 
