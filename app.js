@@ -389,7 +389,13 @@ function renderViaHandoff(origin, rows) {
   // Both ends pinned, the middle optimised. Sorting stops by how far along the
   // way they are is optimal only while every stop is a cheap detour; as soon as
   // you add somewhere you simply want to go, it stops being.
-  const route = engine.buildRoute(chosen, origin, state.model, false, destination);
+  const route = memoRoute(
+    "run",
+    chosen,
+    origin,
+    [destination.id, destination.lat, destination.lon],
+    () => engine.buildRoute(chosen, origin, state.model, false, destination)
+  );
   const direct = state.model.from(origin, destination).roadKm;
 
   route.legs.forEach((leg, index) => {
@@ -434,9 +440,10 @@ function renderPlan(origin) {
   }
 
   const chosen = state.plan.map((id) => state.byId.get(id)).filter(Boolean);
+  const returnHome = el("return-home").checked;
   const route = origin
-    ? engine.buildRoute(chosen, origin, state.model, el("return-home").checked)
-    : engine.routeFromBestFirstStop(chosen, state.model);
+    ? memoRoute("day", chosen, origin, returnHome, () => engine.buildRoute(chosen, origin, state.model, returnHome))
+    : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
   el("plan-no-start").hidden = Boolean(origin);
   el("return-home").closest("label").hidden = !origin;
 
@@ -561,6 +568,23 @@ function setPlanned(ids, planned) {
   }
   writeStore(STORE_PLAN, state.plan);
   render();
+}
+
+const routeMemo = { key: null, value: null };
+
+/** Solve a route once per distinct question, however often the screen redraws. */
+function memoRoute(kind, chosen, origin, extra, solve) {
+  const key = JSON.stringify([
+    kind,
+    chosen.map((place) => place.id),
+    origin ? [origin.id, origin.lat, origin.lon] : null,
+    extra,
+  ]);
+  if (routeMemo.key !== key) {
+    routeMemo.key = key;
+    routeMemo.value = solve();
+  }
+  return routeMemo.value;
 }
 
 function positionMap() {

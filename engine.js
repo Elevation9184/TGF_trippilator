@@ -281,82 +281,152 @@ export function onTheWay(places, origin, destination, count, model, filters, sta
   return chosen;
 }
 
-function sequenceKm(order, start, finish, model, byId, closes) {
-  if (!order.length) return closes ? model.from(start, finish).roadKm : 0;
-  let total = model.from(start, byId.get(order[0])).roadKm;
-  for (let i = 0; i < order.length - 1; i += 1) {
-    total += model.from(byId.get(order[i]), byId.get(order[i + 1])).roadKm;
+// Largest number of stops ordered exactly. Mirrored in src/routing.py.
+export const EXACT_LIMIT = 15;
+
+/**
+ * The provably cheapest order of n stops, by Held-Karp dynamic programming.
+ *
+ * Minimises first[o0] + step[o0][o1] + ... + last[o(n-1)], which covers a loop
+ * home, a run to a fixed destination, and a day with no start point. Iteration
+ * order and strict comparisons match exact_order in src/routing.py, so both
+ * choose the same order even between equal-cost ties.
+ *
+ * Nearest-neighbour and 2-opt alone matched the true optimum in only 89-94% of
+ * 600 sampled trips and missed by up to 20 km. At fifteen stops this takes
+ * about 16 ms on a laptop and 3.8 MB; each extra stop doubles both.
+ */
+export function exactOrder(n, first, step, last) {
+  if (n === 0) return [];
+  const size = 1 << n;
+  const cost = new Float64Array(size * n).fill(Infinity);
+  const parent = new Int8Array(size * n).fill(-1);
+  for (let i = 0; i < n; i += 1) cost[(1 << i) * n + i] = first[i];
+  for (let mask = 1; mask < size; mask += 1) {
+    for (let j = 0; j < n; j += 1) {
+      if (!(mask & (1 << j))) continue;
+      const here = cost[mask * n + j];
+      if (here === Infinity) continue;
+      const row = step[j];
+      for (let k = 0; k < n; k += 1) {
+        if (mask & (1 << k)) continue;
+        const index = (mask | (1 << k)) * n + k;
+        const value = here + row[k];
+        if (value < cost[index]) {
+          cost[index] = value;
+          parent[index] = j;
+        }
+      }
+    }
   }
-  if (closes) total += model.from(byId.get(order[order.length - 1]), finish).roadKm;
+  const full = size - 1;
+  let best = Infinity;
+  let bestLast = -1;
+  for (let j = 0; j < n; j += 1) {
+    const value = cost[full * n + j] + last[j];
+    if (value < best) {
+      best = value;
+      bestLast = j;
+    }
+  }
+  const order = [];
+  let mask = full;
+  let j = bestLast;
+  while (j !== -1) {
+    order.push(j);
+    const previous = parent[mask * n + j];
+    mask ^= 1 << j;
+    j = previous;
+  }
+  return order.reverse();
+}
+
+function orderCost(order, first, step, last) {
+  if (!order.length) return 0;
+  let total = first[order[0]] + last[order[order.length - 1]];
+  for (let i = 0; i < order.length - 1; i += 1) total += step[order[i]][order[i + 1]];
   return total;
 }
 
-/**
- * Nearest-neighbour construction then best-improvement 2-opt. Deterministic.
- *
- * Both ends can be pinned. Pass `finish` for an open path from one place to
- * another, which is the shape of a day driving from somewhere to somewhere
- * else. Ordering matters far more than it looks: for stops picked because they
- * are cheap detours the order you pass them is already optimal, but for stops
- * picked because you want them, optimising saved a median of 15 km and up to
- * 110 km across 200 sampled six-stop trips.
- */
-export function buildRoute(chosen, origin, model, returnsToStart = false, finish = null) {
-  const byId = new Map();
-  for (const place of chosen) if (!byId.has(place.id)) byId.set(place.id, place);
-  const ids = [...byId.keys()];
-  const end = finish || origin;
-  const closes = returnsToStart || finish != null;
-  if (!ids.length) return { places: [], legs: [], totalKm: 0, travelMinutes: 0, visitMinutes: 0 };
-
-  const remaining = new Set(ids);
+export function nearestNeighbourOrder(n, first, step) {
+  const remaining = Array.from({ length: n }, (_, i) => i);
   const order = [];
-  let current = null;
-  while (remaining.size) {
-    let best = null;
-    let bestKm = Infinity;
-    for (const id of [...remaining].sort()) {
-      const km = model.from(current ? byId.get(current) : origin, byId.get(id)).roadKm;
-      if (km < bestKm) {
-        best = id;
-        bestKm = km;
+  let current = -1;
+  while (remaining.length) {
+    // Lowest index wins a tie; indices follow place id, so this is reproducible.
+    let chosen = remaining[0];
+    let chosenCost = current < 0 ? first[chosen] : step[current][chosen];
+    for (const k of remaining) {
+      const value = current < 0 ? first[k] : step[current][k];
+      if (value < chosenCost || (value === chosenCost && k < chosen)) {
+        chosen = k;
+        chosenCost = value;
       }
     }
-    order.push(best);
-    remaining.delete(best);
-    current = best;
+    order.push(chosen);
+    remaining.splice(remaining.indexOf(chosen), 1);
+    current = chosen;
   }
+  return order;
+}
 
-  let bestOrder = order;
-  let bestKm = sequenceKm(bestOrder, origin, end, model, byId, closes);
-  const initialKm = bestKm;
+function twoOptOrder(order, first, step, last) {
+  let best = [...order];
+  let bestCost = orderCost(best, first, step, last);
   let improved = true;
-  while (improved && bestOrder.length > 2) {
+  while (improved && best.length > 2) {
     improved = false;
     let candidate = null;
-    let candidateKm = bestKm;
-    for (let i = 0; i < bestOrder.length - 1; i += 1) {
-      for (let j = i + 1; j < bestOrder.length; j += 1) {
-        const trial = [
-          ...bestOrder.slice(0, i),
-          ...bestOrder.slice(i, j + 1).reverse(),
-          ...bestOrder.slice(j + 1),
-        ];
-        const km = sequenceKm(trial, origin, end, model, byId, closes);
-        if (km < candidateKm - 1e-9) {
+    let candidateCost = bestCost;
+    for (let i = 0; i < best.length - 1; i += 1) {
+      for (let j = i + 1; j < best.length; j += 1) {
+        const trial = [...best.slice(0, i), ...best.slice(i, j + 1).reverse(), ...best.slice(j + 1)];
+        const trialCost = orderCost(trial, first, step, last);
+        if (trialCost < candidateCost - 1e-9) {
           candidate = trial;
-          candidateKm = km;
+          candidateCost = trialCost;
         }
       }
     }
     if (candidate) {
-      bestOrder = candidate;
-      bestKm = candidateKm;
+      best = candidate;
+      bestCost = candidateCost;
       improved = true;
     }
   }
+  return best;
+}
 
-  const places = bestOrder.map((id) => byId.get(id));
+/** Exact up to EXACT_LIMIT stops, nearest-neighbour and 2-opt above it. */
+export function planOrder(n, first, step, last) {
+  if (n <= EXACT_LIMIT) return { order: exactOrder(n, first, step, last), method: "exact" };
+  return { order: twoOptOrder(nearestNeighbourOrder(n, first, step), first, step, last), method: "heuristic" };
+}
+
+/**
+ * Order chosen stops into the shortest route.
+ *
+ * Both ends can be pinned. Pass `finish` for an open run from one place to
+ * another; set `returnsToStart` for a loop home. Up to EXACT_LIMIT stops the
+ * order is provably the shortest.
+ */
+export function buildRoute(chosen, origin, model, returnsToStart = false, finish = null) {
+  const byId = new Map();
+  for (const place of chosen) if (!byId.has(place.id)) byId.set(place.id, place);
+  // Indexed by place id so the order does not depend on the order stops arrive in.
+  const ids = [...byId.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const end = finish || origin;
+  const closes = returnsToStart || finish != null;
+  if (!ids.length) return { places: [], legs: [], totalKm: 0, travelMinutes: 0, visitMinutes: 0, method: "exact" };
+
+  const stops = ids.map((id) => byId.get(id));
+  const first = stops.map((place) => model.from(origin, place).roadKm);
+  const step = stops.map((a) => stops.map((b) => (a.id === b.id ? 0 : model.from(a, b).roadKm)));
+  const last = stops.map((place) => (closes ? model.from(place, end).roadKm : 0));
+  const { order, method } = planOrder(stops.length, first, step, last);
+  const initialKm = orderCost(nearestNeighbourOrder(stops.length, first, step), first, step, last);
+
+  const places = order.map((index) => stops[index]);
   const legs = [{ from: origin.name, to: places[0].name, estimate: model.from(origin, places[0]) }];
   for (let i = 0; i < places.length - 1; i += 1) {
     legs.push({ from: places[i].name, to: places[i + 1].name, estimate: model.from(places[i], places[i + 1]) });
@@ -376,6 +446,7 @@ export function buildRoute(chosen, origin, model, returnsToStart = false, finish
     legs,
     returnsToStart,
     finish,
+    method,
     totalKm: legs.reduce((sum, leg) => sum + leg.estimate.roadKm, 0),
     initialKm,
     travelMinutes,
@@ -388,38 +459,57 @@ export function buildRoute(chosen, origin, model, returnsToStart = false, finish
 /**
  * Order chosen gardens when there is no start point to begin from.
  *
- * Every stop is tried as the first, the rest ordered from it, and the shortest
- * open run kept. Without this, gardens picked on the map before anyone has set
- * a start point simply never appear in My day.
+ * Up to EXACT_LIMIT stops this is one exact search with the start left free,
+ * so the first garden is chosen as part of the optimum. Above it, each garden
+ * is tried as the first with the approximate ordering, and the shortest kept.
  *
  * A UI helper with no Python counterpart: the command line always has a base.
  */
 export function routeFromBestFirstStop(chosen, model) {
-  const unique = [...new Map(chosen.map((place) => [place.id, place])).values()];
+  const unique = [...new Map(chosen.map((place) => [place.id, place])).values()].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  );
   const visitOf = (place) => place.minutes ?? DEFAULT_VISIT_MINUTES;
   if (!unique.length) {
-    return { places: [], legs: [], totalKm: 0, travelMinutes: 0, visitMinutes: 0, totalMinutes: 0 };
+    return { places: [], legs: [], totalKm: 0, travelMinutes: 0, visitMinutes: 0, totalMinutes: 0, method: "exact" };
   }
 
-  let best = null;
-  for (const start of [...unique].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-    const rest = unique.filter((place) => place.id !== start.id);
-    const route = rest.length
-      ? buildRoute(rest, start, model, false)
-      : { places: [], legs: [], totalKm: 0, travelMinutes: 0 };
-    if (!best || route.totalKm < best.route.totalKm - 1e-9) best = { start, route };
+  const n = unique.length;
+  const step = unique.map((a) => unique.map((b) => (a.id === b.id ? 0 : model.from(a, b).roadKm)));
+  const zeros = new Array(n).fill(0);
+  let order;
+  let method;
+  if (n <= EXACT_LIMIT) {
+    order = exactOrder(n, zeros, step, zeros);
+    method = "exact";
+  } else {
+    let best = null;
+    for (let s = 0; s < n; s += 1) {
+      const first = zeros.map((_, k) => (k === s ? 0 : Infinity));
+      const candidate = twoOptOrder(nearestNeighbourOrder(n, first, step), first, step, zeros);
+      const km = orderCost(candidate, first, step, zeros);
+      if (!best || km < best.km - 1e-9) best = { order: candidate, km };
+    }
+    order = best.order;
+    method = "heuristic";
   }
 
-  const places = [best.start, ...best.route.places];
+  const places = order.map((index) => unique[index]);
+  const legs = [];
+  for (let i = 0; i < places.length - 1; i += 1) {
+    legs.push({ from: places[i].name, to: places[i + 1].name, estimate: model.from(places[i], places[i + 1]) });
+  }
+  const travelMinutes = legs.reduce((sum, leg) => sum + leg.estimate.minutes, 0);
   const visitMinutes = places.reduce((sum, place) => sum + visitOf(place), 0);
   return {
     places,
     // The first stop has no drive into it; legs[i] leads to places[i + 1].
-    legs: best.route.legs,
-    totalKm: best.route.totalKm,
-    travelMinutes: best.route.travelMinutes,
+    legs,
+    method,
+    totalKm: legs.reduce((sum, leg) => sum + leg.estimate.roadKm, 0),
+    travelMinutes,
     visitMinutes,
-    totalMinutes: best.route.travelMinutes + visitMinutes,
+    totalMinutes: travelMinutes + visitMinutes,
     startsAtFirstStop: true,
   };
 }
