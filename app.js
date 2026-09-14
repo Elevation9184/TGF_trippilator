@@ -490,6 +490,7 @@ function renderMap() {
         saveView();
       },
     });
+    state.map.setGeography(state.bundle.geography);
     state.map.onSelectingChange((on) => {
       el("map-select").classList.toggle("is-on", on);
       el("map-select").setAttribute("aria-pressed", String(on));

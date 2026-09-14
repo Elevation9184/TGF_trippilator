@@ -46,6 +46,13 @@ function node(name, attributes = {}, text) {
 
 export function createMap({ container, isPlanned, onToggle, onSetMany, describe, onViewChange }) {
   const svg = node("svg", { class: "map-svg", role: "application", "aria-label": "Map of gardens" });
+  // Coastline and highways are hundreds of points. They are built once, in
+  // kilometres, and moved by a transform; only the pins and labels, which must
+  // stay a readable size, are redrawn as the map moves.
+  const geoLayer = node("g", { class: "map-geo" });
+  const liveLayer = node("g");
+  svg.append(geoLayer, liveLayer);
+  let roadLabels = [];
   const popup = document.createElement("div");
   popup.className = "map-popup";
   popup.hidden = true;
@@ -95,18 +102,25 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (!width || !height) return;
     ensureView();
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    svg.replaceChildren();
+    geoLayer.setAttribute("transform", `matrix(${view.scale} 0 0 ${view.scale} ${view.tx} ${view.ty})`);
+    liveLayer.replaceChildren();
+    const svgAppend = (...children) => liveLayer.append(...children);
 
     // Geography scales with the view; text and pins stay a readable size.
     const park = geo.toScreen(view, PARK.centre);
-    svg.append(node("circle", { class: "map-park", cx: park.x, cy: park.y, r: PARK.radiusKm * view.scale }));
+    svgAppend(node("circle", { class: "map-park", cx: park.x, cy: park.y, r: PARK.radiusKm * view.scale }));
     if (PARK.radiusKm * view.scale > 40) {
-      svg.append(node("text", { class: "map-park-label", x: park.x, y: park.y, "text-anchor": "middle" }, "Egmont National Park"));
+      svgAppend(node("text", { class: "map-park-label", x: park.x, y: park.y, "text-anchor": "middle" }, "Egmont National Park"));
+    }
+    for (const label of roadLabels) {
+      const at = geo.toScreen(view, label.point);
+      if (at.x < -20 || at.x > width + 20 || at.y < -20 || at.y > height + 20) continue;
+      svgAppend(node("text", { class: "map-road-label", x: at.x, y: at.y, "text-anchor": "middle" }, label.ref));
     }
     for (const town of TOWNS) {
       const at = geo.toScreen(view, town.point);
-      svg.append(node("circle", { class: "map-town", cx: at.x, cy: at.y, r: 2.5 }));
-      svg.append(node("text", { class: "map-town-label", x: at.x + 5, y: at.y - 5 }, town.name));
+      svgAppend(node("circle", { class: "map-town", cx: at.x, cy: at.y, r: 2.5 }));
+      svgAppend(node("text", { class: "map-town-label", x: at.x + 5, y: at.y - 5 }, town.name));
     }
 
     pins = places.map((place) => {
@@ -129,13 +143,13 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       } else {
         group.append(node("circle", { cx: pin.sx, cy: pin.sy, r: 5 }));
       }
-      svg.append(group);
+      svgAppend(group);
     }
 
     if (area) {
       const { x0, y0, x1, y1 } = area.rect;
       const verb = area.selection.target == null ? "" : area.selection.target ? " add" : " remove";
-      svg.append(
+      svgAppend(
         node("rect", {
           class: `map-area${verb}`,
           x: Math.min(x0, x1),
@@ -361,6 +375,25 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   }
 
   return {
+    /** Coastline and highways, baked from OpenStreetMap. Optional. */
+    setGeography(geography) {
+      geoLayer.replaceChildren();
+      roadLabels = [];
+      if (!geography) return schedule();
+      const scale = geography.scale || 10000;
+      for (const flat of geography.coast || []) {
+        geoLayer.append(node("path", { class: "map-coast", d: geo.pathData(geo.decodeLine(flat, scale)) }));
+      }
+      for (const road of geography.roads || []) {
+        const lines = road.lines.map((flat) => geo.decodeLine(flat, scale));
+        for (const line of lines) {
+          geoLayer.append(node("path", { class: "map-road", d: geo.pathData(line) }));
+        }
+        const point = geo.labelAnchor(lines, road.ref === "SH45" ? 0.55 : 0.4);
+        if (point) roadLabels.push({ ref: road.ref, point });
+      }
+      schedule();
+    },
     /** Places to draw: only those the current filters let through. */
     setPlaces(visible, all) {
       places = visible;

@@ -389,3 +389,23 @@ body.map-mode.show-filters .controls {
 .map-popup-name { font-weight: 600; }
 .map-popup-address { color: var(--muted); }
 .map-popup-meta { margin-top: 0.25rem; font-size: 0.74rem; color: var(--muted); }
+
+/* Outlines stay a constant width however far the map is zoomed. */
+.map-coast,
+.map-road { fill: none; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.map-coast { stroke: #6fa3c7; stroke-width: 1.5; }
+.map-road { stroke: #d9a441; stroke-width: 2.2; }
+.map-road-label {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #9a6a12;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  paint-order: stroke;
+  pointer-events: none;
+}
+@media (prefers-color-scheme: dark) {
+  .map-coast { stroke: #4f86ad; }
+  .map-road { stroke: #b88a2e; }
+  .map-road-label { fill: #e0b659; }
+}

@@ -23,6 +23,61 @@ export function project(lat, lon) {
   };
 }
 
+/**
+ * Decode one baked line into projected kilometres.
+ *
+ * Lines arrive as [lat, lon, dLat, dLon, ...] in whole ten-thousandths of a
+ * degree, the first pair absolute and the rest differences from the previous.
+ */
+export function decodeLine(flat, scale = 10000) {
+  const points = [];
+  let lat = 0;
+  let lon = 0;
+  for (let i = 0; i + 1 < flat.length; i += 2) {
+    lat += flat[i];
+    lon += flat[i + 1];
+    points.push(project(lat / scale, lon / scale));
+  }
+  return points;
+}
+
+/** SVG path data for points in kilometres. */
+export function pathData(points) {
+  return points
+    .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(3)} ${p.y.toFixed(3)}`)
+    .join("");
+}
+
+/** Where to put a road's label: part-way along its longest line. */
+export function labelAnchor(lines, share = 0.4) {
+  let longest = null;
+  let longestLength = -1;
+  for (const line of lines) {
+    let length = 0;
+    for (let i = 1; i < line.length; i += 1) {
+      length += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y);
+    }
+    if (length > longestLength) {
+      longest = line;
+      longestLength = length;
+    }
+  }
+  if (!longest || longest.length < 2) return null;
+  let target = longestLength * share;
+  for (let i = 1; i < longest.length; i += 1) {
+    const step = Math.hypot(longest[i].x - longest[i - 1].x, longest[i].y - longest[i - 1].y);
+    if (step >= target) {
+      const t = step ? target / step : 0;
+      return {
+        x: longest[i - 1].x + t * (longest[i].x - longest[i - 1].x),
+        y: longest[i - 1].y + t * (longest[i].y - longest[i - 1].y),
+      };
+    }
+    target -= step;
+  }
+  return longest[longest.length - 1];
+}
+
 export function clampScale(scale) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
