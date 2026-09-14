@@ -17,6 +17,16 @@ import { toCsv, fromCsv } from "./notes.js";
 const STORE_BASE = "tgo.base.v1";
 const STORE_VISITS = "tgo.visits.v1";
 const STORE_PLAN = "tgo.plan.v1";
+const STORE_VIEW = "tgo.view.v1";
+
+// Every control that shapes what is on screen. A pull-to-refresh on a phone
+// is easy to trigger by accident, and losing the whole query to it is worse
+// than any amount of tidiness gained by starting fresh.
+const VIEW_CONTROLS = [
+  "origin", "destination", "order", "count",
+  "festival", "entry-type", "anchor", "max-km",
+];
+const VIEW_CHECKBOXES = ["hide-visited", "return-home"];
 
 const el = (id) => document.getElementById(id);
 const state = {
@@ -57,6 +67,48 @@ async function load() {
   state.visits = new Map(Object.entries(readStore(STORE_VISITS, {})));
   state.plan = readStore(STORE_PLAN, []).filter((id) => state.byId.has(id));
   state.order = "detour";
+}
+
+function saveView() {
+  const view = { mode: state.mode, amenities: [] };
+  for (const id of VIEW_CONTROLS) view[id] = el(id).value;
+  for (const id of VIEW_CHECKBOXES) view[id] = el(id).checked;
+  view.amenities = [...document.querySelectorAll("[data-amenity]")]
+    .filter((box) => box.checked)
+    .map((box) => box.dataset.amenity);
+  writeStore(STORE_VIEW, view);
+}
+
+/** Put the controls back as they were, ignoring anything no longer valid. */
+function restoreView() {
+  const view = readStore(STORE_VIEW, null);
+  if (!view) return;
+
+  for (const id of VIEW_CONTROLS) {
+    const control = el(id);
+    if (view[id] == null) continue;
+    // A stored garden may have gone from the dataset since; leave the default.
+    const allowed =
+      control.tagName !== "SELECT" ||
+      [...control.options].some((option) => option.value === view[id]);
+    if (allowed) control.value = view[id];
+  }
+  for (const id of VIEW_CHECKBOXES) {
+    if (typeof view[id] === "boolean") el(id).checked = view[id];
+  }
+  for (const box of document.querySelectorAll("[data-amenity]")) {
+    box.checked = (view.amenities || []).includes(box.dataset.amenity);
+  }
+  if (view.mode) {
+    const tab = document.querySelector(`[data-mode="${view.mode}"]`);
+    if (tab) {
+      document.querySelectorAll(".mode").forEach((b) => b.classList.remove("is-active"));
+      tab.classList.add("is-active");
+      state.mode = view.mode;
+    }
+  }
+  el("destination-field").hidden = state.mode !== "via";
+  el("order-field").hidden = state.mode !== "via";
 }
 
 function sortedPlaces() {
@@ -371,16 +423,20 @@ function wire() {
       el("destination-field").hidden = state.mode !== "via";
       el("order-field").hidden = state.mode !== "via";
       updateRangeLabel();
+      saveView();
       render();
     });
   });
 
   ["origin", "destination", "order", "count", "festival", "entry-type", "anchor", "hide-visited", "return-home"]
-    .forEach((id) => el(id).addEventListener("change", render));
-  document.querySelectorAll("[data-amenity]").forEach((box) => box.addEventListener("change", render));
+    .forEach((id) => el(id).addEventListener("change", () => { saveView(); render(); }));
+  document
+    .querySelectorAll("[data-amenity]")
+    .forEach((box) => box.addEventListener("change", () => { saveView(); render(); }));
 
   el("max-km").addEventListener("input", () => {
     updateRangeLabel();
+    saveView();
     render();
   });
 
@@ -504,6 +560,7 @@ load()
     fillPlaceSelect(el("destination"), { includeBase: true });
     if (state.base) el("base-button").textContent = state.base.name;
     wire();
+    restoreView();
     updateRangeLabel();
     render();
   })
