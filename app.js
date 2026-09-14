@@ -13,6 +13,7 @@
 
 import * as engine from "./engine.js";
 import { toCsv, fromCsv } from "./notes.js";
+import { createMap } from "./map.js";
 
 const STORE_BASE = "tgo.base.v1";
 const STORE_VISITS = "tgo.visits.v1";
@@ -37,6 +38,8 @@ const state = {
   visits: new Map(),
   plan: [],
   mode: "nearest",
+  map: null,
+  mapView: null,
 };
 
 /* Storage can throw in private windows, so never let it break the page. */
@@ -70,7 +73,7 @@ async function load() {
 }
 
 function saveView() {
-  const view = { mode: state.mode, amenities: [] };
+  const view = { mode: state.mode, amenities: [], map: state.mapView };
   for (const id of VIEW_CONTROLS) view[id] = el(id).value;
   for (const id of VIEW_CHECKBOXES) view[id] = el(id).checked;
   view.amenities = [...document.querySelectorAll("[data-amenity]")]
@@ -83,6 +86,7 @@ function saveView() {
 function restoreView() {
   const view = readStore(STORE_VIEW, null);
   if (!view) return;
+  state.mapView = view.map || null;
 
   for (const id of VIEW_CONTROLS) {
     const control = el(id);
@@ -268,6 +272,17 @@ function render() {
   const status = el("status");
   results.innerHTML = "";
 
+  const onMap = state.mode === "map";
+  document.body.classList.toggle("map-mode", onMap);
+  el("map-view").hidden = !onMap;
+  if (onMap) {
+    renderMap();
+    return;
+  }
+  document.body.classList.remove("show-filters");
+  state.map?.setSelecting(false);
+  state.map?.hidePopup();
+
   const origin = originFrom(el("origin"));
   if (!origin) {
     status.textContent = "Set a start point to begin.";
@@ -426,6 +441,78 @@ function updateRangeLabel() {
   el("max-km-value").textContent = value > 0 ? `${value} km` : "no limit";
 }
 
+function escapeHtml(value) {
+  const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return String(value ?? "").replace(/[&<>"']/g, (c) => entities[c]);
+}
+
+/** What a press-and-hold on a pin shows: enough to confirm it is the right one. */
+function describePlace(place) {
+  const planned = state.plan.includes(place.id);
+  return `
+    <div class="map-popup-nr">${escapeHtml(engine.gardenNr(place))}</div>
+    <div class="map-popup-name">${escapeHtml(place.name)}</div>
+    <div class="map-popup-address">${escapeHtml(place.address)}</div>
+    <div class="map-popup-meta">${escapeHtml(place.festivals.join(" + "))} · ${
+      planned ? "in your plan, tap to remove" : "tap to add"
+    }</div>`;
+}
+
+/** Set several gardens the same way at once, as an area selection does. */
+function setPlanned(ids, planned) {
+  const chosen = new Set(ids);
+  if (planned) {
+    // Keep the order things were added in; new ones go on the end.
+    state.plan = [...state.plan, ...ids.filter((id) => !state.plan.includes(id))];
+  } else {
+    state.plan = state.plan.filter((id) => !chosen.has(id));
+  }
+  writeStore(STORE_PLAN, state.plan);
+  render();
+}
+
+function positionMap() {
+  const tabs = document.querySelector(".modes").getBoundingClientRect();
+  document.documentElement.style.setProperty("--map-top", `${Math.round(tabs.bottom)}px`);
+}
+
+function renderMap() {
+  positionMap();
+  if (!state.map) {
+    state.map = createMap({
+      container: el("map-canvas"),
+      isPlanned: (id) => state.plan.includes(id),
+      onToggle: (id) => togglePlan(id),
+      onSetMany: (ids, planned) => setPlanned(ids, planned),
+      describe: describePlace,
+      onViewChange: (view) => {
+        state.mapView = view;
+        saveView();
+      },
+    });
+    state.map.onSelectingChange((on) => {
+      el("map-select").classList.toggle("is-on", on);
+      el("map-select").setAttribute("aria-pressed", String(on));
+      el("map-hint").hidden = !on;
+    });
+    // The size is only known once the view has been laid out.
+    setTimeout(() => {
+      if (state.mapView) state.map.restore(state.mapView);
+      else state.map.fit();
+    }, 0);
+  }
+
+  // Only what the filters let through is drawn, so only that can be selected.
+  const filters = { ...currentFilters(), maxKm: null };
+  const visible = engine.eligible(state.bundle.places, filters, state.visits).map((place) => ({
+    ...place,
+    label: engine.mapLabel(place),
+    festivalClass: place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase(),
+  }));
+  state.map.setPlaces(visible, state.bundle.places);
+  el("map-count").textContent = `${state.plan.length} in plan · ${visible.length} shown`;
+}
+
 function togglePlan(id) {
   const index = state.plan.indexOf(id);
   if (index >= 0) state.plan.splice(index, 1);
@@ -512,6 +599,20 @@ function wire() {
       el("status").textContent = `That file could not be read: ${error.message}`;
     }
     event.target.value = "";
+  });
+
+  el("map-select").addEventListener("click", () => {
+    if (state.map) state.map.setSelecting(!state.map.selecting);
+  });
+  el("map-fit").addEventListener("click", () => state.map?.fit());
+  el("map-filters").addEventListener("click", () => {
+    const open = document.body.classList.toggle("show-filters");
+    el("map-filters").classList.toggle("is-on", open);
+    el("map-filters").setAttribute("aria-pressed", String(open));
+    positionMap();
+  });
+  window.addEventListener("resize", () => {
+    if (state.mode === "map") positionMap();
   });
 
   el("via-clear").addEventListener("click", () => {

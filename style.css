@@ -272,3 +272,120 @@ footer { display: grid; gap: 0.5rem; justify-items: center; }
   border-radius: var(--radius);
 }
 .via-handoff span { font-size: 0.82rem; color: var(--muted); }
+
+/* ---------------------------------------------------------------- map ---- */
+
+/* The map fills the screen below the tabs because it has to own every touch:
+   a map inside a scrolling page traps the scroll. */
+.map-view {
+  position: fixed;
+  top: var(--map-top, 6.5rem);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  z-index: 3;
+}
+body.map-mode { overflow: hidden; overscroll-behavior: none; }
+body.map-mode #results,
+body.map-mode #status,
+body.map-mode #plan,
+body.map-mode #via-handoff,
+body.map-mode footer,
+body.map-mode .not-on-map { display: none !important; }
+body.map-mode .controls { display: none; }
+body.map-mode.show-filters .controls {
+  display: grid;
+  position: fixed;
+  top: calc(var(--map-top, 6.5rem) + 3rem);
+  left: 0.5rem;
+  right: 0.5rem;
+  z-index: 6;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.map-toolbar {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  flex-wrap: wrap;
+}
+.map-toolbar button {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.map-toolbar button.is-on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+.map-count { margin-left: auto; font-size: 0.78rem; color: var(--muted); }
+.map-hint {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  background: #fff7d6;
+  color: #5a4a00;
+  border-bottom: 1px solid #efe2a8;
+}
+.map-canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.map-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+}
+.map-svg:active { cursor: grabbing; }
+.map-park { fill: #dfeee4; stroke: #9cc4ac; stroke-dasharray: 4 4; }
+.map-park-label { font-size: 12px; fill: #4a7a5d; pointer-events: none; }
+.map-town { fill: #9aa5a0; }
+.map-town-label { font-size: 11px; fill: #7d8a84; pointer-events: none; }
+.map-pin circle { fill: var(--card); stroke-width: 2.5; }
+.map-pin text { font-size: 9.5px; font-weight: 700; pointer-events: none; }
+.map-pin-centuria circle { stroke: var(--centuria); }
+.map-pin-centuria text { fill: var(--centuria); }
+.map-pin-fringe circle { stroke: var(--fringe); }
+.map-pin-fringe text { fill: var(--fringe); }
+.map-pin-both circle { stroke: var(--green); }
+.map-pin-both text { fill: var(--green); }
+.map-pin.is-planned circle { fill: var(--green); stroke: var(--green); }
+.map-pin.is-planned text { fill: #fff; }
+.map-pin.will-add circle { stroke: #1e8e3e; stroke-width: 4; }
+.map-pin.will-remove circle { stroke: #c62828; stroke-width: 4; fill: var(--card); }
+.map-pin.will-remove text { fill: #c62828; }
+.map-area { fill: rgba(47, 93, 58, 0.08); stroke: var(--green); stroke-dasharray: 5 4; stroke-width: 1.5; }
+.map-area.add { fill: rgba(30, 142, 62, 0.12); stroke: #1e8e3e; }
+.map-area.remove { fill: rgba(198, 40, 40, 0.1); stroke: #c62828; }
+.map-popup {
+  position: absolute;
+  z-index: 4;
+  max-width: 17rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.map-popup-nr { font-weight: 700; color: var(--green); font-size: 0.78rem; }
+.map-popup-name { font-weight: 600; }
+.map-popup-address { color: var(--muted); }
+.map-popup-meta { margin-top: 0.25rem; font-size: 0.74rem; color: var(--muted); }

@@ -378,8 +378,27 @@ export function buildRoute(chosen, origin, model, returnsToStart = false, finish
   };
 }
 
+/** Mirrors Place.garden_nr: "C24, F30". A human reference, never a key. */
+export function gardenNr(place) {
+  const parts = [];
+  if (place.centuriaNo != null) parts.push(`C${place.centuriaNo}`);
+  if (place.fringeNo != null) parts.push(`F${place.fringeNo}`);
+  return parts.join(", ");
+}
+
+/** Mirrors Place.map_label: one label per pin, Centuria winning where both exist. */
+export function mapLabel(place) {
+  if (place.centuriaNo != null) return `C${place.centuriaNo}`;
+  return place.fringeNo != null ? `F${place.fringeNo}` : "";
+}
+
 export function findPlaces(places, query) {
   const wanted = fold(query);
   if (!wanted) return places;
-  return places.filter((p) => fold(p.name).includes(wanted) || fold(p.region).includes(wanted));
+  return places.filter(
+    (p) =>
+      fold(p.name).includes(wanted) ||
+      fold(p.region).includes(wanted) ||
+      fold(gardenNr(p)).split(", ").includes(wanted)
+  );
 }

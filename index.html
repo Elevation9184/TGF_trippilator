@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260914-1251" />
+    <meta name="build" content="20260914-2159" />
   </head>
   <body>
     <header>
@@ -24,10 +24,24 @@
       <button class="mode" data-mode="recommend" role="tab">Best picks</button>
       <button class="mode" data-mode="via" role="tab">On the way</button>
       <button class="mode" data-mode="route" role="tab">My day</button>
+      <button class="mode" data-mode="map" role="tab">Map</button>
     </nav>
 
+    <section id="map-view" class="map-view" hidden>
+      <div class="map-toolbar">
+        <button id="map-select" type="button" aria-pressed="false">&#9645; Select area</button>
+        <button id="map-fit" type="button">Fit</button>
+        <button id="map-filters" type="button" aria-pressed="false">Filters</button>
+        <span id="map-count" class="map-count"></span>
+      </div>
+      <p id="map-hint" class="map-hint" hidden>
+        Drag a box. The first garden it catches decides: add them all, or remove them all.
+      </p>
+      <div id="map-canvas" class="map-canvas"></div>
+    </section>
+
     <section class="controls">
-      <div class="row">
+      <div class="row not-on-map">
         <label>
           Starting from
           <select id="origin"></select>
@@ -83,7 +97,7 @@
       </div>
 
       <div class="row">
-        <label class="grow">
+        <label class="grow not-on-map">
           <span id="max-km-label">Within</span> <output id="max-km-value">no limit</output>
           <input id="max-km" type="range" min="0" max="100" step="5" value="0" />
         </label>

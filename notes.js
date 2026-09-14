@@ -10,8 +10,13 @@
  * apart from app.js because it is worth testing on its own.
  */
 
+import { gardenNr } from "./engine.js";
+
 export const COLUMNS = [
   "Place ID",
+  // For the person editing: matches the numbers on the printed maps. Exported
+  // only, never read back, never a key; Place ID does the looking up.
+  "Garden Nr",
   "Name",
   "Festival",
   "Region",
@@ -88,6 +93,7 @@ export function toCsv(places, visits) {
     lines.push(
       [
         place.id,
+        gardenNr(place),
         place.name,
         place.festivals.join(" + "),
         place.region,
