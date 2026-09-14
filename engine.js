@@ -154,6 +154,7 @@ export const defaultFilters = () => ({
   entryType: ALL,
   anchorClass: null,
   mustVisitOnly: false,
+  minInterest: null,
   includeVisited: false,
   includeExcluded: false,
   maxKm: null,
@@ -178,7 +179,13 @@ export function eligible(places, filters, state) {
     if (f.festival !== BOTH && !place.festivals.includes(f.festival)) return false;
     if (f.entryType !== ALL && place.type !== f.entryType) return false;
     if (f.anchorClass && place.anchor !== f.anchorClass) return false;
-    if (f.mustVisitOnly && !(visit.mustVisit || place.mustVisit === "Yes")) return false;
+    // A stored "No" is a non-empty string, so this must compare, not test truthiness.
+    if (f.mustVisitOnly && (visit.mustVisit ?? place.mustVisit) !== "Yes") return false;
+    // An unrated garden cannot meet a minimum rating.
+    if (f.minInterest != null) {
+      const rating = interestOf(place, state);
+      if (rating == null || rating < f.minInterest) return false;
+    }
     for (const amenity of f.requireAmenities) {
       if (place.amenities?.[amenity] === "No") return false;
     }
@@ -375,6 +382,45 @@ export function buildRoute(chosen, origin, model, returnsToStart = false, finish
     visitMinutes,
     totalMinutes: travelMinutes + visitMinutes,
     assumedVisitCount: places.filter((p) => p.minutes == null).length,
+  };
+}
+
+/**
+ * Order chosen gardens when there is no start point to begin from.
+ *
+ * Every stop is tried as the first, the rest ordered from it, and the shortest
+ * open run kept. Without this, gardens picked on the map before anyone has set
+ * a start point simply never appear in My day.
+ *
+ * A UI helper with no Python counterpart: the command line always has a base.
+ */
+export function routeFromBestFirstStop(chosen, model) {
+  const unique = [...new Map(chosen.map((place) => [place.id, place])).values()];
+  const visitOf = (place) => place.minutes ?? DEFAULT_VISIT_MINUTES;
+  if (!unique.length) {
+    return { places: [], legs: [], totalKm: 0, travelMinutes: 0, visitMinutes: 0, totalMinutes: 0 };
+  }
+
+  let best = null;
+  for (const start of [...unique].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    const rest = unique.filter((place) => place.id !== start.id);
+    const route = rest.length
+      ? buildRoute(rest, start, model, false)
+      : { places: [], legs: [], totalKm: 0, travelMinutes: 0 };
+    if (!best || route.totalKm < best.route.totalKm - 1e-9) best = { start, route };
+  }
+
+  const places = [best.start, ...best.route.places];
+  const visitMinutes = places.reduce((sum, place) => sum + visitOf(place), 0);
+  return {
+    places,
+    // The first stop has no drive into it; legs[i] leads to places[i + 1].
+    legs: best.route.legs,
+    totalKm: best.route.totalKm,
+    travelMinutes: best.route.travelMinutes,
+    visitMinutes,
+    totalMinutes: best.route.travelMinutes + visitMinutes,
+    startsAtFirstStop: true,
   };
 }
 

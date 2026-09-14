@@ -125,7 +125,15 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
 
     pins = places.map((place) => {
       const at = geo.toScreen(view, geo.project(place.lat, place.lon));
-      return { id: place.id, sx: at.x, sy: at.y, label: place.label, planned: isPlanned(place.id), place };
+      return {
+        id: place.id,
+        sx: at.x,
+        sy: at.y,
+        label: place.label,
+        planned: isPlanned(place.id),
+        locked: Boolean(place.locked),
+        place,
+      };
     });
     const labelled = geo.declutter(pins, LABEL_GAP);
     const preview = area?.selection.target != null ? new Set(area.selection.ids) : null;
@@ -135,6 +143,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       if (!onScreen) continue;
       const classes = ["map-pin", `map-pin-${pin.place.festivalClass}`];
       if (pin.planned) classes.push("is-planned");
+      if (pin.locked) classes.push("is-locked");
       if (preview?.has(pin.id)) classes.push(area.selection.target ? "will-add" : "will-remove");
       const group = node("g", { class: classes.join(" ") });
       if (labelled.has(pin.id)) {
@@ -277,7 +286,8 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (gesture.kind === "area" && area) {
       area.rect.x1 = at.x;
       area.rect.y1 = at.y;
-      area.selection.update(area.rect, pins);
+      // Greyed-out gardens are visible but not selectable.
+      area.selection.update(area.rect, pins.filter((pin) => !pin.locked));
     } else if (gesture.kind === "press") {
       view = geo.panBy(view, at.x - gesture.last.x, at.y - gesture.last.y);
     }
@@ -328,7 +338,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       // A tap. On a pin: dismiss any popup and toggle. On empty map: just dismiss.
       const pin = geo.hitTest(pins, finished.start.x, finished.start.y, TAP_RADIUS);
       hidePopup();
-      if (pin) onToggle(pin.id);
+      // A greyed-out garden does not toggle; show why instead of doing nothing.
+      if (pin?.locked) showPopup(pin);
+      else if (pin) onToggle(pin.id);
     }
     schedule();
   }

@@ -26,8 +26,21 @@ const STORE_VIEW = "tgo.view.v1";
 const VIEW_CONTROLS = [
   "origin", "destination", "order", "count",
   "festival", "entry-type", "anchor", "max-km",
+  "rank", "interest-weight", "min-interest",
 ];
-const VIEW_CHECKBOXES = ["hide-visited", "return-home"];
+const VIEW_CHECKBOXES = ["hide-visited", "return-home", "must-visit-only"];
+
+// What "Reset filters" returns to. Everything inside the filter panel.
+const FILTER_DEFAULTS = {
+  festival: "Both",
+  "entry-type": "All",
+  anchor: "",
+  "max-km": "0",
+  rank: "distance",
+  "interest-weight": "35",
+  "min-interest": "",
+};
+const FILTER_CHECK_DEFAULTS = { "hide-visited": true, "must-visit-only": false };
 
 const el = (id) => document.getElementById(id);
 const state = {
@@ -103,6 +116,11 @@ function restoreView() {
   for (const box of document.querySelectorAll("[data-amenity]")) {
     box.checked = (view.amenities || []).includes(box.dataset.amenity);
   }
+  // Best picks used to be its own tab; it is now a ranking choice in Nearest.
+  if (view.mode === "recommend") {
+    view.mode = "nearest";
+    if (!view.rank) el("rank").value = "blend";
+  }
   if (view.mode) {
     const tab = document.querySelector(`[data-mode="${view.mode}"]`);
     if (tab) {
@@ -113,6 +131,7 @@ function restoreView() {
   }
   el("destination-field").hidden = state.mode !== "via";
   el("order-field").hidden = state.mode !== "via";
+  el("count-field").hidden = state.mode === "route";
 }
 
 function sortedPlaces() {
@@ -151,6 +170,8 @@ function currentFilters() {
     entryType: el("entry-type").value,
     anchorClass: el("anchor").value || null,
     includeVisited: !el("hide-visited").checked,
+    mustVisitOnly: el("must-visit-only").checked,
+    minInterest: el("min-interest").value === "" ? null : Number(el("min-interest").value),
     maxKm: maxKm > 0 ? maxKm : null,
     requireAmenities: [...document.querySelectorAll("[data-amenity]")]
       .filter((box) => box.checked)
@@ -272,6 +293,7 @@ function render() {
   const status = el("status");
   results.innerHTML = "";
 
+  updateFilterSummary();
   const onMap = state.mode === "map";
   document.body.classList.toggle("map-mode", onMap);
   el("map-view").hidden = !onMap;
@@ -279,12 +301,12 @@ function render() {
     renderMap();
     return;
   }
-  document.body.classList.remove("show-filters");
   state.map?.setSelecting(false);
   state.map?.hidePopup();
 
   const origin = originFrom(el("origin"));
-  if (!origin) {
+  // My day can still order chosen gardens without a start point.
+  if (!origin && state.mode !== "route") {
     status.textContent = "Set a start point to begin.";
     el("via-handoff").hidden = true;
     return;
@@ -297,9 +319,15 @@ function render() {
   let rows = [];
 
   if (state.mode === "nearest") {
-    rows = engine.nearest(state.bundle.places, origin, count, state.model, filters, state.visits);
-  } else if (state.mode === "recommend") {
-    rows = engine.recommend(state.bundle.places, origin, count, state.model, filters, state.visits);
+    if (el("rank").value === "blend") {
+      const interest = Number(el("interest-weight").value) / 100;
+      rows = engine.recommend(state.bundle.places, origin, count, state.model, filters, state.visits, {
+        distance: 1 - interest,
+        interest,
+      });
+    } else {
+      rows = engine.nearest(state.bundle.places, origin, count, state.model, filters, state.visits);
+    }
   } else if (state.mode === "via") {
     const destination = originFrom(el("destination"));
     if (!destination) {
@@ -319,7 +347,9 @@ function render() {
       status.textContent = "Nothing matched those filters.";
     } else {
       const source = rows[0].estimate.source;
-      status.textContent = `${rows.length} shown · ${source}`;
+      const ranking =
+        state.mode === "nearest" && el("rank").value === "blend" ? " · ranked by distance and ratings" : "";
+      status.textContent = `${rows.length} shown${ranking} · ${source}`;
     }
     rows.forEach((row, index) => results.append(resultRow(row, index)));
     renderViaHandoff(origin, rows);
@@ -403,25 +433,41 @@ function renderPlan(origin) {
     return;
   }
 
-  const chosen = state.plan.map((id) => state.byId.get(id));
-  const route = engine.buildRoute(chosen, origin, state.model, el("return-home").checked);
+  const chosen = state.plan.map((id) => state.byId.get(id)).filter(Boolean);
+  const route = origin
+    ? engine.buildRoute(chosen, origin, state.model, el("return-home").checked)
+    : engine.routeFromBestFirstStop(chosen, state.model);
+  el("plan-no-start").hidden = Boolean(origin);
+  el("return-home").closest("label").hidden = !origin;
 
-  route.legs.forEach((leg, index) => {
+  const addLeg = (leg) => {
     const drive = document.createElement("li");
     drive.className = "leg";
     drive.innerHTML = `<span class="drive">${leg.estimate.roadKm.toFixed(1)} km · ${Math.round(leg.estimate.minutes)} min</span> <span class="to">${leg.to}</span>`;
     list.append(drive);
-    const place = route.places[index];
-    if (place) {
-      const stop = document.createElement("li");
-      stop.className = "stop";
-      stop.innerHTML = `
-        <span class="stay">${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}</span>
-        <span class="to">${place.name}</span>
-        <button type="button" class="link" data-remove="${place.id}">remove</button>`;
-      list.append(stop);
-    }
-  });
+  };
+  const addStop = (place) => {
+    const stop = document.createElement("li");
+    stop.className = "stop";
+    stop.innerHTML = `
+      <span class="stay">${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}</span>
+      <span class="to">${place.name}</span>
+      <button type="button" class="link" data-remove="${place.id}">remove</button>`;
+    list.append(stop);
+  };
+
+  if (route.startsAtFirstStop) {
+    // Begins at a garden: stop, then each drive leads to the next stop.
+    route.places.forEach((place, index) => {
+      if (index > 0) addLeg(route.legs[index - 1]);
+      addStop(place);
+    });
+  } else {
+    route.legs.forEach((leg, index) => {
+      addLeg(leg);
+      if (route.places[index]) addStop(route.places[index]);
+    });
+  }
 
   const hours = (route.totalMinutes / 60).toFixed(1);
   summary.textContent =
@@ -430,14 +476,56 @@ function renderPlan(origin) {
   el("navigate").onclick = () => {
     // The app plans; the phone navigates.
     const stops = [...route.places];
-    const finish = el("return-home").checked ? origin : stops.pop();
-    openInMaps(origin, stops.slice(0, MAX_WAYPOINTS), finish);
+    const start = origin || stops.shift();
+    const finish = origin && el("return-home").checked ? origin : stops.pop() || start;
+    openInMaps(start, stops.slice(0, MAX_WAYPOINTS), finish);
   };
+}
+
+/** The one line under the tabs that says what is being filtered out. */
+function updateFilterSummary() {
+  const parts = [];
+  if (el("festival").value !== "Both") parts.push(el("festival").value);
+  if (el("entry-type").value !== "All") parts.push(el("entry-type").selectedOptions[0].textContent);
+  if (el("anchor").value) parts.push(el("anchor").selectedOptions[0].textContent.toLowerCase());
+  const km = Number(el("max-km").value);
+  if (km > 0 && (state.mode === "nearest" || state.mode === "via")) {
+    parts.push(state.mode === "via" ? `detour under ${km} km` : `within ${km} km`);
+  }
+  if (el("min-interest").value) parts.push(`rated ${el("min-interest").value}+`);
+  if (el("must-visit-only").checked) parts.push("must visit");
+  for (const box of document.querySelectorAll("[data-amenity]")) {
+    if (box.checked) parts.push(box.closest("label").textContent.trim().toLowerCase());
+  }
+  if (el("hide-visited").checked) parts.push(state.mode === "map" ? "seen greyed" : "hiding seen");
+  if (state.mode === "nearest" && el("rank").value === "blend") {
+    parts.push(`ratings ${el("interest-weight").value}%`);
+  }
+
+  const changed =
+    Object.entries(FILTER_DEFAULTS).filter(([id, value]) => el(id).value !== value).length +
+    Object.entries(FILTER_CHECK_DEFAULTS).filter(([id, value]) => el(id).checked !== value).length +
+    [...document.querySelectorAll("[data-amenity]")].filter((box) => box.checked).length;
+  el("filters-count").textContent = String(changed);
+  el("filters-count").hidden = changed === 0;
+  el("filters-summary").textContent = parts.length ? parts.join(" · ") : "Showing everything";
+
+  el("weight-field").hidden = el("rank").value !== "blend";
+  el("interest-weight-value").textContent = `${el("interest-weight").value}%`;
+}
+
+function resetFilters() {
+  for (const [id, value] of Object.entries(FILTER_DEFAULTS)) el(id).value = value;
+  for (const [id, value] of Object.entries(FILTER_CHECK_DEFAULTS)) el(id).checked = value;
+  document.querySelectorAll("[data-amenity]").forEach((box) => (box.checked = false));
+  updateRangeLabel();
 }
 
 function updateRangeLabel() {
   const value = Number(el("max-km").value);
   el("max-km-label").textContent = state.mode === "via" ? "Detour under" : "Within";
+  // Distance only means something relative to a start: not on the map or My day.
+  el("range-field").hidden = state.mode === "map" || state.mode === "route";
   el("max-km-value").textContent = value > 0 ? `${value} km` : "no limit";
 }
 
@@ -454,7 +542,11 @@ function describePlace(place) {
     <div class="map-popup-name">${escapeHtml(place.name)}</div>
     <div class="map-popup-address">${escapeHtml(place.address)}</div>
     <div class="map-popup-meta">${escapeHtml(place.festivals.join(" + "))} · ${
-      planned ? "in your plan, tap to remove" : "tap to add"
+      place.locked
+        ? `seen${place.visitedOn ? ` ${escapeHtml(place.visitedOn)}` : ""}, hidden while "Hide ones I've seen" is on`
+        : planned
+          ? "in your plan, tap to remove"
+          : "tap to add"
     }</div>`;
 }
 
@@ -472,11 +564,14 @@ function setPlanned(ids, planned) {
 }
 
 function positionMap() {
-  const tabs = document.querySelector(".modes").getBoundingClientRect();
-  document.documentElement.style.setProperty("--map-top", `${Math.round(tabs.bottom)}px`);
+  // The map sits under the filter strip, so its summary stays readable.
+  const strip = document.querySelector(".filter-strip").getBoundingClientRect();
+  document.documentElement.style.setProperty("--map-top", `${Math.round(strip.bottom)}px`);
 }
 
 function renderMap() {
+  // Measure from the top of the page, or a scrolled list would push the map up.
+  window.scrollTo(0, 0);
   positionMap();
   if (!state.map) {
     state.map = createMap({
@@ -504,14 +599,23 @@ function renderMap() {
   }
 
   // Only what the filters let through is drawn, so only that can be selected.
+  // Seen gardens are the exception: with "Hide ones I've seen" on they stay on
+  // the map, greyed out and locked, so the map still shows where they are.
   const filters = { ...currentFilters(), maxKm: null };
-  const visible = engine.eligible(state.bundle.places, filters, state.visits).map((place) => ({
-    ...place,
-    label: engine.mapLabel(place),
-    festivalClass: place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase(),
-  }));
+  const hideSeen = el("hide-visited").checked;
+  const visible = engine
+    .eligible(state.bundle.places, { ...filters, includeVisited: true }, state.visits)
+    .map((place) => ({
+      ...place,
+      label: engine.mapLabel(place),
+      festivalClass: place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase(),
+      locked: hideSeen && Boolean(visitOf(place.id).visited),
+      visitedOn: visitOf(place.id).visitedOn || null,
+    }));
   state.map.setPlaces(visible, state.bundle.places);
-  el("map-count").textContent = `${state.plan.length} in plan · ${visible.length} shown`;
+  const greyed = visible.filter((place) => place.locked).length;
+  el("map-count").textContent =
+    `${state.plan.length} in plan · ${visible.length - greyed} shown` + (greyed ? ` · ${greyed} seen` : "");
 }
 
 function togglePlan(id) {
@@ -530,14 +634,28 @@ function wire() {
       state.mode = button.dataset.mode;
       el("destination-field").hidden = state.mode !== "via";
       el("order-field").hidden = state.mode !== "via";
+      el("count-field").hidden = state.mode === "route";
       updateRangeLabel();
       saveView();
       render();
     });
   });
 
-  ["origin", "destination", "order", "count", "festival", "entry-type", "anchor", "hide-visited", "return-home"]
-    .forEach((id) => el(id).addEventListener("change", () => { saveView(); render(); }));
+  [
+    "origin", "destination", "order", "count", "festival", "entry-type", "anchor",
+    "hide-visited", "return-home", "rank", "min-interest", "must-visit-only",
+  ].forEach((id) => el(id).addEventListener("change", () => { saveView(); render(); }));
+  el("interest-weight").addEventListener("input", () => { saveView(); render(); });
+
+  el("filters-button").addEventListener("click", () => {
+    updateRangeLabel();
+    el("filters-dialog").showModal();
+  });
+  el("filters-reset").addEventListener("click", () => {
+    resetFilters();
+    saveView();
+    render();
+  });
   document
     .querySelectorAll("[data-amenity]")
     .forEach((box) => box.addEventListener("change", () => { saveView(); render(); }));
@@ -602,16 +720,12 @@ function wire() {
     event.target.value = "";
   });
 
+  el("plan-set-start").addEventListener("click", () => el("base-button").click());
+
   el("map-select").addEventListener("click", () => {
     if (state.map) state.map.setSelecting(!state.map.selecting);
   });
   el("map-fit").addEventListener("click", () => state.map?.fit());
-  el("map-filters").addEventListener("click", () => {
-    const open = document.body.classList.toggle("show-filters");
-    el("map-filters").classList.toggle("is-on", open);
-    el("map-filters").setAttribute("aria-pressed", String(open));
-    positionMap();
-  });
   window.addEventListener("resize", () => {
     if (state.mode === "map") positionMap();
   });

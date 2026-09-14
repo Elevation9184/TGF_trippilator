@@ -161,7 +161,10 @@ export function hitTest(pins, sx, sy, radius) {
  */
 export function declutter(pins, minGap) {
   const ordered = [...pins].sort(
-    (a, b) => Number(b.planned) - Number(a.planned) || a.label.localeCompare(b.label, "en", { numeric: true })
+    (a, b) =>
+      Number(b.planned) - Number(a.planned) ||
+      Number(Boolean(a.locked)) - Number(Boolean(b.locked)) ||
+      a.label.localeCompare(b.label, "en", { numeric: true })
   );
   const labelled = [];
   for (const pin of ordered) {
