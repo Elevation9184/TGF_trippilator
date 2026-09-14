@@ -275,7 +275,8 @@ function render() {
     return;
   }
 
-  const count = Number(el("count").value);
+  // "All" is stored as 0, so the whole filtered list can be ticked through.
+  const count = Number(el("count").value) || state.bundle.places.length;
   state.order = el("order").value;
   const filters = currentFilters();
   let rows = [];
@@ -328,30 +329,49 @@ function renderViaHandoff(origin, rows) {
     return;
   }
   const destination = originFrom(el("destination"));
-  // Only the stops actually chosen, kept in the order they are passed.
-  const chosen = rows
-    .filter((row) => state.plan.includes(row.place.id))
-    .sort((a, b) => a.estimate.roadKm - b.estimate.roadKm)
-    .map((row) => row.place);
-
+  const list = el("via-list");
+  const summary = el("via-summary");
   panel.hidden = false;
-  const extra = chosen.reduce((sum, place) => {
-    const row = rows.find((r) => r.place.id === place.id);
-    return sum + Math.max(0, row.detourKm);
-  }, 0);
+  list.innerHTML = "";
 
-  if (!chosen.length) {
-    el("via-summary").textContent = "Add stops with + Plan, then send the run to Google Maps.";
+  const chosen = state.plan.map((id) => state.byId.get(id)).filter(Boolean);
+  if (!chosen.length || !destination) {
+    summary.textContent = "Tick + Plan on anything below to build a run.";
     el("via-navigate").disabled = true;
-  } else {
-    const over = chosen.length > MAX_WAYPOINTS;
-    el("via-summary").textContent =
-      `${chosen.length} stop(s), ${extra.toFixed(1)} km extra` +
-      (over ? ` — Google takes ${MAX_WAYPOINTS}, so the last ${chosen.length - MAX_WAYPOINTS} are left off.` : "");
-    el("via-navigate").disabled = false;
-    el("via-navigate").onclick = () =>
-      openInMaps(origin, chosen.slice(0, MAX_WAYPOINTS), destination);
+    return;
   }
+
+  // Both ends pinned, the middle optimised. Sorting stops by how far along the
+  // way they are is optimal only while every stop is a cheap detour; as soon as
+  // you add somewhere you simply want to go, it stops being.
+  const route = engine.buildRoute(chosen, origin, state.model, false, destination);
+  const direct = state.model.from(origin, destination).roadKm;
+
+  route.legs.forEach((leg, index) => {
+    const drive = document.createElement("li");
+    drive.className = "leg";
+    drive.innerHTML = `<span class="drive">${leg.estimate.roadKm.toFixed(1)} km · ${Math.round(leg.estimate.minutes)} min</span> <span class="to">${leg.to}</span>`;
+    list.append(drive);
+    const place = route.places[index];
+    if (place) {
+      const stop = document.createElement("li");
+      stop.className = "stop";
+      stop.innerHTML = `
+        <span class="stay">${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}</span>
+        <span class="to">${place.name}</span>
+        <button type="button" class="link" data-remove="${place.id}">remove</button>`;
+      list.append(stop);
+    }
+  });
+
+  const hours = (route.totalMinutes / 60).toFixed(1);
+  summary.textContent =
+    `${route.places.length} stops · ${route.totalKm.toFixed(1)} km ` +
+    `(${(route.totalKm - direct).toFixed(1)} km more than driving straight there) · ` +
+    `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up`;
+  el("via-navigate").disabled = false;
+  el("via-navigate").onclick = () =>
+    openInMaps(origin, route.places.slice(0, MAX_WAYPOINTS), destination);
 }
 
 function renderPlan(origin) {
@@ -492,6 +512,12 @@ function wire() {
       el("status").textContent = `That file could not be read: ${error.message}`;
     }
     event.target.value = "";
+  });
+
+  el("via-clear").addEventListener("click", () => {
+    state.plan = [];
+    writeStore(STORE_PLAN, state.plan);
+    render();
   });
 
   el("clear-plan").addEventListener("click", () => {

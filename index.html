@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260914-1237" />
+    <meta name="build" content="20260914-1251" />
   </head>
   <body>
     <header>
@@ -50,6 +50,7 @@
             <option>10</option>
             <option>15</option>
             <option>20</option>
+            <option value="0">All</option>
           </select>
         </label>
       </div>
@@ -116,10 +117,15 @@
     </section>
 
     <p id="status" class="status"></p>
-    <div id="via-handoff" class="via-handoff" hidden>
-      <span id="via-summary"></span>
+    <section id="via-handoff" class="plan" hidden>
+      <div class="plan-head">
+        <strong>Your run</strong>
+        <button id="via-clear" type="button" class="link">Clear</button>
+      </div>
+      <ol id="via-list" class="plan-list"></ol>
+      <p id="via-summary" class="summary"></p>
       <button id="via-navigate" type="button" class="primary">Send this run to Google Maps</button>
-    </div>
+    </section>
     <ul id="results" class="results"></ul>
 
     <footer>
