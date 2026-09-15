@@ -840,3 +840,4 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
 .base-dialog menu { justify-content: space-between; }
 .base-dialog menu .link { margin-right: auto; }
 #map-base-hint { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
+.map-base-status { display: block; font-size: 0.74rem; opacity: 0.85; }

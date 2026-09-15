@@ -1414,6 +1414,9 @@ async function fetchJson(url) {
 /**
  * Measure road distances between the base and every garden, both ways, once.
  * Kept with the base on this device; without them, estimates stand in.
+ *
+ * Returns true when measured, false when the service could not be reached, and
+ * null when the base moved while waiting, so the answer is for somewhere else.
  */
 async function measureBase() {
   const base = state.base;
@@ -1425,9 +1428,10 @@ async function measureBase() {
       fetchJson(position.roadTableUrl(point, gardens, "to")),
       fetchJson(position.roadTableUrl(point, gardens, "from")),
     ]);
+    if (state.base !== base || base.lat !== point.lat || base.lon !== point.lon) return null;
     const to = position.roadTableRows(out, gardens, "to");
     const from = position.roadTableRows(back, gardens, "from");
-    if (!Object.keys(to).length || state.base !== base) return false;
+    if (!Object.keys(to).length) return false;
     base.travel = { to, from };
     base.measuredAt = new Date().toISOString();
     writeStore(STORE_BASE, base);
@@ -1623,7 +1627,30 @@ function saveBase() {
   startPlacingBase();
 }
 
-/** On the map, B where the lookup put it; a tap moves it. Measured when done. */
+let baseMeasureTimer = 0;
+
+/**
+ * Measure the base in the background, a moment after it last moved. Nothing
+ * waits for it: plans use estimates until the measured distances arrive, then
+ * quietly update.
+ */
+function measureBaseSoon(delay = 0) {
+  clearTimeout(baseMeasureTimer);
+  showBaseProgress("Measuring road distances in the background…");
+  baseMeasureTimer = setTimeout(async () => {
+    const ok = await measureBase();
+    if (ok === null) return; // moved meanwhile; a newer measurement is on its way
+    showBaseProgress(
+      ok ? "Road distances measured ✓" : "Routing service unreachable: estimates for now. Try Measure now in B later."
+    );
+  }, delay);
+}
+
+function showBaseProgress(text) {
+  el("map-base-status").textContent = text;
+}
+
+/** On the map, B where the lookup put it; a tap moves it. Measuring starts at once. */
 function startPlacingBase() {
   document.querySelector('[data-mode="map"]').click();
   el("map-base-hint").hidden = false;
@@ -1637,23 +1664,20 @@ function startPlacingBase() {
     state.model.setPersonal(position.BASE_ID, {});
     travelChanged();
     el("map-base-text").innerHTML = "<strong>B</strong> moved. Tap again to adjust, or press Done.";
+    // Wait for the taps to settle rather than measuring every one.
+    measureBaseSoon(1500);
     render();
   });
   state.map.centreOn(state.base.lat, state.base.lon, 60);
+  measureBaseSoon();
   render();
 }
 
-async function finishPlacingBase() {
+/** Done never waits: any measuring carries on in the background. */
+function finishPlacingBase() {
   if (el("map-base-hint").hidden) return;
   state.map?.setPicking(null);
   el("map-base-hint").hidden = true;
-  if (state.base && !state.base.travel) {
-    el("status").textContent = "Measuring road distances to your base…";
-    const ok = await measureBase();
-    el("status").textContent = ok
-      ? `Road distances from ${state.base.name} to every garden measured.`
-      : "The routing service could not be reached; distances to your base are estimates for now.";
-  }
 }
 
 function wireWhere() {

@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260915-1736" />
+    <meta name="build" content="20260915-1814" />
   </head>
   <body>
     <header>
@@ -49,7 +49,10 @@
         <span id="map-count" class="map-count"></span>
       </div>
       <p id="map-base-hint" class="map-hint" hidden>
-        <span id="map-base-text">Is <strong>B</strong> in the right place? Tap where your base is to move it.</span>
+        <span>
+          <span id="map-base-text">Is <strong>B</strong> in the right place? Tap where your base is to move it.</span>
+          <span id="map-base-status" class="map-base-status" role="status"></span>
+        </span>
         <button id="map-base-done" type="button" class="link">Done</button>
       </p>
       <p id="map-hint" class="map-hint" hidden>

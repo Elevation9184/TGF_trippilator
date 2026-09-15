@@ -63,6 +63,8 @@ export function roadTableUrl(point, targets, direction) {
   const url = new URL(OSRM_TABLE + coords);
   url.searchParams.set(direction === "to" ? "sources" : "destinations", "0");
   url.searchParams.set("annotations", "distance,duration");
+  // Without it the reply describes every point it snapped to: 17.7 KB instead of 1.1.
+  url.searchParams.set("skip_waypoints", "true");
   return url.toString();
 }
 
