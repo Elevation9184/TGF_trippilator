@@ -9,7 +9,7 @@
  * Bump CACHE when publishing a new bundle. Old caches are removed on activate.
  */
 
-const CACHE = "tgo-20260915-1304";
+const CACHE = "tgo-20260915-1345";
 const ASSETS = [
   "./",
   "./index.html",
@@ -21,6 +21,7 @@ const ASSETS = [
   "./maplogic.js",
   "./preselect.js",
   "./editor.js",
+  "./opening.js",
   "./icon.svg",
   "./manifest.webmanifest",
   "./data/bundle.json",

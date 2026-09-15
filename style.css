@@ -687,3 +687,20 @@ body.map-mode .controls { display: none !important; }
   .editor .ed-list { border-right: 1px solid var(--line); }
   .ed-go-edit { display: none !important; }
 }
+
+/* ------------------------------------------------------ opening days ---- */
+.open-closed,
+.open-unknown {
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 0.02rem 0.3rem;
+  white-space: nowrap;
+}
+.open-closed { color: #9b1c1c; background: #fde8e8; }
+.open-unknown { color: #7a5b00; background: #fff4cc; }
+@media (prefers-color-scheme: dark) {
+  .open-closed { color: #f8b4b4; background: #4a1d1d; }
+  .open-unknown { color: #f3d27a; background: #3d3212; }
+}
+.map-popup-open { margin-top: 0.2rem; font-size: 0.76rem; }

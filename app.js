@@ -16,6 +16,7 @@ import { toCsv, fromCsv } from "./notes.js";
 import { createMap } from "./map.js";
 import { Preselection, doneToday, mapStates, matchesSearch, searchTerm } from "./preselect.js";
 import * as edit from "./editor.js";
+import * as opening from "./opening.js";
 
 const STORE_BASE = "tgo.base.v1";
 const STORE_VISITS = "tgo.visits.v1";
@@ -30,19 +31,20 @@ const STORE_VIEW = "tgo.view.v1";
 // than any amount of tidiness gained by starting fresh.
 const VIEW_CONTROLS = [
   "origin", "destination", "order", "count", "detour-cap",
-  "area", "festival", "entry-type", "anchor", "max-km",
+  "area", "open-on", "festival", "entry-type", "anchor", "max-km",
   "rank", "interest-weight", "min-interest",
 ];
 const VIEW_CHECKBOXES = ["hide-visited", "return-home", "must-visit-only"];
 
 // Filters decide which gardens match. Changing one ends any lingering.
 // Ranking choices and the search box do not.
-const CRITERIA_CONTROLS = ["area", "festival", "entry-type", "anchor", "min-interest"];
+const CRITERIA_CONTROLS = ["area", "open-on", "festival", "entry-type", "anchor", "min-interest"];
 const CRITERIA_CHECKBOXES = ["hide-visited", "must-visit-only"];
 
 // What "Reset filters" returns to.
 const FILTER_DEFAULTS = {
   area: "",
+  "open-on": "",
   festival: "Both",
   "entry-type": "All",
   anchor: "",
@@ -211,6 +213,41 @@ function fillAreaSelect() {
   }
 }
 
+/** The festival's days, with today marked once the festival is on. */
+function fillOpenOnSelect() {
+  const select = el("open-on");
+  const now = today();
+  for (const iso of festivalDays()) {
+    const option = document.createElement("option");
+    option.value = iso;
+    option.textContent = opening.dayLabel(iso) + (iso === now ? " · today" : "");
+    select.append(option);
+  }
+}
+
+function festivalDays() {
+  return state.bundle.festival?.days || [];
+}
+
+/**
+ * The day to check a plan against: the Open on choice, or else today if the
+ * festival is on. Null when neither applies, and nothing is flagged.
+ */
+function checkDay() {
+  return el("open-on").value || opening.festivalToday(festivalDays(), today());
+}
+
+/** A small marker for a garden on a given day: closed, or days unknown. */
+function openingTag(place, day) {
+  if (!day) return "";
+  const open = opening.openOn(place, day);
+  if (open === true) return "";
+  if (open === false) {
+    return `<span class="open-closed" title="${escapeHtml(opening.describeDays(place, festivalDays()))}">closed ${escapeHtml(opening.dayLabel(day))}</span>`;
+  }
+  return '<span class="open-unknown" title="Opening days not published; check with the festival">days ?</span>';
+}
+
 /** The origin the engine works with: either a known place or the private base. */
 function originFrom(select) {
   if (select.value === "@base") {
@@ -237,11 +274,14 @@ function criteriaFilters() {
 /** Ids of the gardens that meet every filter, before anything done by hand. */
 function criteriaMatches() {
   const area = el("area").value;
+  const openDay = el("open-on").value;
   const maxKm = Number(el("max-km").value);
   const origin = maxKm > 0 ? originFrom(el("origin")) : null;
   const ids = new Set();
   for (const place of engine.eligible(state.bundle.places, criteriaFilters(), state.visits)) {
     if (area && place.area !== area) continue;
+    // Unknown days are not closed days: only a published "not that day" excludes.
+    if (openDay && opening.openOn(place, openDay) === false) continue;
     if (origin && place.id !== origin.id && state.model.from(origin, place).roadKm > maxKm) continue;
     ids.add(place.id);
   }
@@ -389,6 +429,7 @@ function resultRow(row, index) {
         ${place.anchor === "Daily anchor" ? '<span class="tag tag-anchor">major</span>' : ""}
         <span class="badges">${amenityBadges(place)}</span>
         <span class="region">${escapeHtml(place.area || place.region)}</span>
+        ${openingTag(place, el("open-on").value)}
         <select class="rate${rating === "" ? "" : " is-rated"}" data-rate="${place.id}"
           title="How interesting is this garden, 1 to 10?">${options}</select>
       </div>
@@ -563,7 +604,7 @@ function stopItem(place, { done, seenButton }) {
        <button type="button" class="link" data-remove="${place.id}">remove</button>`;
   stop.innerHTML = `
     <span class="stay">${done ? "done ✓" : stay}</span>
-    <span class="to">${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)}</span>
+    <span class="to">${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}</span>
     ${buttons}`;
   return stop;
 }
@@ -615,7 +656,8 @@ function renderPlan(origin) {
   summary.textContent =
     `${route.places.length} stops${done.size ? ` (${done.size} done)` : ""} · ${route.totalKm.toFixed(1)} km · ` +
     `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up` +
-    (route.method === "exact" ? "" : " · order approximate above 15 stops");
+    (route.method === "exact" ? "" : " · order approximate above 15 stops") +
+    (checkDay() ? ` · opening checked for ${opening.dayLabel(checkDay())}` : "");
   el("navigate").hidden = !remaining.length;
   el("navigate").textContent = done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
   el("navigate").onclick = () => {
@@ -631,6 +673,7 @@ function renderPlan(origin) {
 function filterWords() {
   const parts = [];
   if (el("area").value) parts.push(el("area").value);
+  if (el("open-on").value) parts.push(`open ${opening.dayLabel(el("open-on").value)}`);
   if (el("festival").value !== "Both") parts.push(el("festival").value);
   if (el("entry-type").value !== "All") parts.push(el("entry-type").selectedOptions[0].textContent);
   if (el("anchor").value) parts.push(el("anchor").selectedOptions[0].textContent.toLowerCase());
@@ -684,6 +727,8 @@ function preselectRow(place, { lingering, outside }) {
   const visit = visitOf(place.id);
   const notes = [];
   if (visit.visited) notes.push('<span class="tag tag-anchor">seen</span>');
+  const tag = openingTag(place, el("open-on").value);
+  if (tag) notes.push(tag);
   if (lingering) notes.push('<span class="ps-released" title="Released. Stays in view until you next change a filter.">released</span>');
   const classes = ["ps-row"];
   if (locked) classes.push("is-locked");
@@ -930,7 +975,9 @@ function renderListing(picked) {
     ["Area", place.area || place.region],
     ["Festival", place.festivals.join(" + ")],
     ["Type", place.type],
-    ["Size", SIZE_WORDS[place.anchor] || place.anchor || "not given"],
+    ["Size", SIZE_WORDS[place.anchor] || (place.anchor && place.anchor !== "None" ? place.anchor : "not given")],
+    ["Open", opening.describeDays(place, festivalDays())],
+    ["Hours", place.open?.hours || "not published"],
     ["Listing visit", place.minutes != null ? `${place.minutes} min` : "not given"],
     ["Facilities", amenities.length ? amenities.join(", ") : "not recorded"],
   ];
@@ -1080,6 +1127,9 @@ function describePlace(place) {
     <div class="map-popup-nr">${escapeHtml(engine.gardenNr(place))}</div>
     <div class="map-popup-name">${escapeHtml(place.name)}</div>
     <div class="map-popup-address">${escapeHtml(place.address)}</div>
+    <div class="map-popup-open">Open ${escapeHtml(opening.describeDays(place, festivalDays()))}${
+      place.open?.hours ? ` · ${escapeHtml(place.open.hours)}` : ""
+    } ${openingTag(place, el("open-on").value)}</div>
     <div class="map-popup-meta">${escapeHtml(place.festivals.join(" + "))} · ${what}</div>`;
 }
 
@@ -1362,6 +1412,7 @@ load()
     fillPlaceSelect(el("origin"), { includeBase: true });
     fillPlaceSelect(el("destination"), { includeBase: true });
     fillAreaSelect();
+    fillOpenOnSelect();
     if (state.base) el("base-button").textContent = state.base.name;
     wire();
     restoreView();

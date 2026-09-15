@@ -1,7 +1,7 @@
 # TGF Trippilator
 
-An offline trip planner for the Taranaki Garden Festival, 31 October to
-5 November 2026. Open the link on a phone, add it to the home screen, and it
+An offline trip planner for the Taranaki Garden Festival, 30 October to
+8 November 2026. Open the link on a phone, add it to the home screen, and it
 works with no mobile coverage.
 
 **This repository contains only the published app.** It is generated; do not
