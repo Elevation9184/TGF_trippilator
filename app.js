@@ -470,6 +470,12 @@ function render() {
   const pool = poolPlaces(matches);
   updateSummary(pool);
   updateWhere();
+  // First, before any early return: the build stamp is how an old copy is spotted,
+  // and a phone with no start point yet needs it as much as any.
+  const build = document.querySelector('meta[name="build"]')?.content || "dev";
+  el("provenance").textContent =
+    `${state.bundle.places.length} destinations · road costs baked ` +
+    `${(state.bundle.generatedAt || "").slice(0, 10)} · build ${build}`;
   if (el("preselect-dialog").open) renderPreselect(matches, pool);
   if (el("edit-dialog").open) renderEditor(pool);
 
@@ -542,10 +548,6 @@ function render() {
   }
 
   renderPlan(origin);
-  const build = document.querySelector('meta[name="build"]')?.content || "dev";
-  el("provenance").textContent =
-    `${state.bundle.places.length} destinations · road costs baked ` +
-    `${(state.bundle.generatedAt || "").slice(0, 10)} · build ${build}`;
 }
 
 function lockedPlaces() {
