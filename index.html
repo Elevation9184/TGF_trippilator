@@ -11,12 +11,19 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260915-1556" />
+    <meta name="build" content="20260915-1736" />
   </head>
   <body>
     <header>
       <h1>Taranaki Garden Optimiser</h1>
-      <button id="base-button" class="base" type="button">Set start point</button>
+      <div class="where">
+        <button id="here-button" class="base" type="button" title="Where am I? Takes one GPS fix">
+          <span class="here-icon" aria-hidden="true"></span><span id="here-label">Here</span>
+        </button>
+        <button id="base-button" class="base" type="button" title="Your base: where you are staying">
+          <span class="base-icon" aria-hidden="true">B</span><span id="base-label">Set base</span>
+        </button>
+      </div>
     </header>
 
     <nav class="modes" role="tablist">
@@ -41,6 +48,10 @@
         <button id="map-fit" type="button">Fit</button>
         <span id="map-count" class="map-count"></span>
       </div>
+      <p id="map-base-hint" class="map-hint" hidden>
+        <span id="map-base-text">Is <strong>B</strong> in the right place? Tap where your base is to move it.</span>
+        <button id="map-base-done" type="button" class="link">Done</button>
+      </p>
       <p id="map-hint" class="map-hint" hidden>
         Drag a box. The first garden it catches decides: lock them all in, or release them all.
         Greyed-out gardens are left alone.
@@ -93,14 +104,22 @@
         <strong>Today's plan</strong>
         <label class="check">
           <input id="return-home" type="checkbox" checked />
-          Return to start
+          Return to base
         </label>
         <button id="clear-plan" type="button" class="link">Clear</button>
       </div>
       <p id="plan-no-start" class="plan-note" hidden>
-        No start point set, so this begins at whichever garden gives the shortest run.
-        <button id="plan-set-start" type="button" class="link">Set a start point</button>
+        No base set and not starting from here, so this begins at whichever garden gives the shortest run.
+        <button id="plan-set-start" type="button" class="link">Set your base</button>
       </p>
+      <div class="plan-tools">
+        <button id="replan-here" type="button" title="Take a GPS fix and reorder the stops still to go from where you are">
+          <span class="here-icon" aria-hidden="true"></span> Re-plan from here
+        </button>
+        <button id="head-base" type="button" hidden title="Directions to your base in Google Maps">
+          <span class="base-icon" aria-hidden="true">B</span> <span id="head-base-label">Head to base</span>
+        </button>
+      </div>
       <ol id="plan-list" class="plan-list"></ol>
       <p id="plan-summary" class="summary"></p>
       <button id="navigate" type="button" class="primary" hidden>Open in Google Maps</button>
@@ -140,29 +159,37 @@
       </p>
     </footer>
 
-    <dialog id="base-dialog">
+    <dialog id="base-dialog" class="base-dialog">
       <form method="dialog">
-        <h2>Where are you starting from?</h2>
+        <h2><span class="base-icon" aria-hidden="true">B</span> Your base</h2>
         <p class="note">
-          This stays on your device. It is never uploaded, and is not part of the
-          published data — everyone using this link sets their own.
+          Where you are staying. Plans start here and can return here. It stays on this
+          device and is never part of the published site. Finding the address and measuring
+          road distances asks OpenStreetMap's free services, once.
         </p>
-        <button id="use-gps" type="button" class="primary">Use my current location</button>
-        <label>
-          Or start from a garden
-          <select id="base-place"></select>
-        </label>
+        <p id="base-current" class="base-current" hidden></p>
+
+        <label for="base-address">Address</label>
+        <div class="base-search">
+          <input id="base-address" type="search" autocomplete="street-address" enterkeyhint="search"
+            placeholder="e.g. 12 Devon Street West, New Plymouth" />
+          <button id="base-lookup" type="button">Find</button>
+        </div>
+        <ul id="base-results" class="base-results"></ul>
+
+        <button id="use-gps" type="button">I'm at the base now: use my location</button>
         <details>
           <summary>Or enter coordinates</summary>
           <div class="row">
-            <label>Latitude <input id="base-lat" type="number" step="any" placeholder="-39.06" /></label>
-            <label>Longitude <input id="base-lon" type="number" step="any" placeholder="174.07" /></label>
+            <label>Latitude <input id="base-lat" type="text" inputmode="decimal" placeholder="-39.06" /></label>
+            <label>Longitude <input id="base-lon" type="text" inputmode="decimal" placeholder="174.07" /></label>
           </div>
         </details>
-        <p id="base-status" class="note"></p>
+        <p id="base-status" class="note" role="status"></p>
         <menu>
+          <button id="base-clear" type="button" class="link">Remove base</button>
           <button value="cancel">Cancel</button>
-          <button id="base-save" value="save" class="primary">Save</button>
+          <button id="base-save" type="button" class="primary" disabled>Save</button>
         </menu>
       </form>
     </dialog>

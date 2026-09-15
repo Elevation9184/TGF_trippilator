@@ -23,6 +23,11 @@ export function project(lat, lon) {
   };
 }
 
+/** The inverse of project: kilometres back to latitude and longitude. */
+export function unproject(x, y) {
+  return { lat: -39 - y / KM_PER_DEGREE, lon: 174 + x / (KM_PER_DEGREE * COS_REFERENCE) };
+}
+
 /**
  * Decode one baked line into projected kilometres.
  *

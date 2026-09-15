@@ -55,6 +55,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   let roadLabels = [];
   let minorLayer = null;
   let tertiaryLayer = null;
+  let markers = []; // { kind: "base" | "here", lat, lon, ... }
+  let markerPins = [];
+  let picking = null; // a callback while placing the base by tapping the map
   const popup = document.createElement("div");
   popup.className = "map-popup";
   popup.hidden = true;
@@ -166,6 +169,23 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       svgAppend(group);
     }
 
+    // The base and where you are, on top of everything: never decluttered away.
+    markerPins = markers.map((marker) => {
+      const at = geo.toScreen(view, geo.project(marker.lat, marker.lon));
+      return { id: `marker:${marker.kind}`, sx: at.x, sy: at.y, marker, place: marker };
+    });
+    for (const pin of markerPins) {
+      const group = node("g", { class: `map-marker map-marker-${pin.marker.kind}` });
+      if (pin.marker.kind === "base") {
+        group.append(node("circle", { cx: pin.sx, cy: pin.sy, r: 13 }));
+        group.append(node("text", { x: pin.sx, y: pin.sy + 4.5, "text-anchor": "middle" }, "B"));
+      } else {
+        group.append(node("circle", { class: "map-here-ring", cx: pin.sx, cy: pin.sy, r: 11 }));
+        group.append(node("circle", { class: "map-here-dot", cx: pin.sx, cy: pin.sy, r: 5.5 }));
+      }
+      svgAppend(group);
+    }
+
     if (area) {
       const { x0, y0, x1, y1 } = area.rect;
       const verb = area.selection.target == null ? "" : area.selection.target ? " add" : " remove";
@@ -195,8 +215,18 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     placePopup();
   }
 
+  /** A marker wins over a garden under the same finger: it is drawn on top. */
+  function hitAnything(x, y, radius) {
+    return geo.hitTest(markerPins, x, y, radius) || geo.hitTest(pins, x, y, radius);
+  }
+
+  function worldAt(x, y) {
+    const point = geo.toWorld(view, x, y);
+    return geo.unproject(point.x, point.y);
+  }
+
   function placePopup() {
-    const pin = pins.find((p) => p.id === popupId);
+    const pin = [...markerPins, ...pins].find((p) => p.id === popupId);
     if (!pin) return hidePopup();
     const { width } = size();
     const w = popup.offsetWidth;
@@ -247,7 +277,14 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (!areaGesture) {
       holdTimer = setTimeout(() => {
         if (!gesture || gesture.moved) return;
-        const pin = geo.hitTest(pins, gesture.start.x, gesture.start.y, TAP_RADIUS);
+        if (picking) {
+          gesture.held = true;
+          const { lat, lon } = worldAt(gesture.start.x, gesture.start.y);
+          navigator.vibrate?.(15);
+          picking(lat, lon);
+          return;
+        }
+        const pin = hitAnything(gesture.start.x, gesture.start.y, TAP_RADIUS);
         if (pin) {
           gesture.held = true;
           showPopup(pin);
@@ -263,7 +300,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (!pointers.has(event.pointerId)) {
       // A mouse moving with no button down: hover shows what is under it.
       if (event.pointerType === "mouse" && !area) {
-        const pin = geo.hitTest(pins, at.x, at.y, 14);
+        const pin = hitAnything(at.x, at.y, 14);
         if (pin && pin.id !== popupId) showPopup(pin);
         else if (!pin && popupId) hidePopup();
       }
@@ -349,10 +386,17 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     } else if (!finished.held) {
       // A tap. On a pin: dismiss any popup and lock in or release. A greyed-out
       // garden can be tapped too; that is how one outside the filters is added.
-      // On empty map: just dismiss.
-      const pin = geo.hitTest(pins, finished.start.x, finished.start.y, TAP_RADIUS);
+      // On empty map: just dismiss. On the base or here marker: say what it is.
+      // While placing the base, a tap anywhere puts it there instead.
       hidePopup();
-      if (pin) onToggle(pin.id);
+      if (picking) {
+        const { lat, lon } = worldAt(finished.start.x, finished.start.y);
+        picking(lat, lon);
+      } else {
+        const pin = hitAnything(finished.start.x, finished.start.y, TAP_RADIUS);
+        if (pin?.marker) showPopup(pin);
+        else if (pin) onToggle(pin.id);
+      }
     }
     schedule();
   }
@@ -433,6 +477,33 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       schedule();
     },
     refresh: schedule,
+    /** The base and where you are. Drawn on top, not selectable. */
+    setMarkers(list) {
+      markers = (list || []).filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lon));
+      if (popupId?.startsWith("marker:") && !markers.some((m) => `marker:${m.kind}` === popupId)) hidePopup();
+      schedule();
+    },
+    /** Put a point in the middle, zoomed in at least as far as `scale`. */
+    centreOn(lat, lon, scale = 40) {
+      const point = geo.project(lat, lon);
+      const target = geo.clampScale(Math.max(scale, view?.scale ?? 0));
+      const { width, height } = size();
+      if (width && height) {
+        pendingView = null;
+        view = { scale: target, tx: width / 2 - point.x * target, ty: height / 2 - point.y * target };
+        svg._lastSize = { width, height };
+        commitView();
+      } else {
+        pendingView = { cx: point.x, cy: point.y, scale: target };
+      }
+      schedule();
+    },
+    /** While set, a tap or press on the map calls back with its position rather than toggling. */
+    setPicking(callback) {
+      picking = callback || null;
+      setSelecting(false);
+      hidePopup();
+    },
     fit() {
       pendingView = null;
       const { width, height } = size();

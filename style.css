@@ -725,3 +725,118 @@ body.map-mode .controls { display: none !important; }
   .open-unknown { color: #f3d27a; background: #3d3212; }
 }
 .map-popup-open { margin-top: 0.2rem; font-size: 0.76rem; }
+
+/* ---------------------------------------------------- base and here ---- */
+header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.where { display: flex; gap: 0.35rem; flex: 0 1 auto; min-width: 0; }
+.where .base {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 11rem;
+}
+.where .base span:last-child { overflow: hidden; text-overflow: ellipsis; }
+/* On a phone the symbols carry it: the age and the base name are in Starting from and on the map. */
+@media (max-width: 420px) {
+  .where .base { padding: 0.35rem 0.5rem; }
+  .where .base span:last-child { display: none; }
+  .where .base-icon, .where .here-icon { width: 1.35rem; height: 1.35rem; }
+}
+/* B: a dark disc with a white letter. Here: a blue dot in a ring, as on any map. */
+.base-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: #1b2420;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border: 1.5px solid #fff;
+  flex: 0 0 auto;
+}
+.here-icon {
+  display: inline-block;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, #1a73e8 0 38%, #fff 40% 100%);
+  border: 2px solid #1a73e8;
+  flex: 0 0 auto;
+}
+.map-marker-base circle { fill: #1b2420; stroke: #fff; stroke-width: 2.5; }
+.map-marker-base text { fill: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
+.map-here-ring { fill: #fff; stroke: #1a73e8; stroke-width: 3; }
+.map-here-dot { fill: #1a73e8; }
+@media (prefers-color-scheme: dark) {
+  .base-icon { background: #e6ece8; color: #151a17; border-color: #151a17; }
+  .map-marker-base circle { fill: #e6ece8; stroke: #151a17; }
+  .map-marker-base text { fill: #151a17; }
+}
+
+.plan-tools { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
+.plan-tools button {
+  font: inherit;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.base-dialog { max-width: 30rem; }
+.base-dialog h2 { display: flex; align-items: center; gap: 0.45rem; }
+.base-current { margin: 0; font-size: 0.85rem; }
+.base-search { display: flex; gap: 0.4rem; }
+.base-search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
+.base-search button,
+#use-gps {
+  font: inherit;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.base-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; max-height: 12rem; overflow: auto; }
+.base-results button {
+  font: inherit;
+  font-size: 0.82rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.base-results button.is-on { border-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--card)); font-weight: 600; }
+.base-dialog input[type="text"] {
+  font: inherit;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+.base-dialog menu { justify-content: space-between; }
+.base-dialog menu .link { margin-right: auto; }
+#map-base-hint { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }

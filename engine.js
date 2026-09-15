@@ -107,41 +107,63 @@ export class TravelModel {
     return best ? { place: best, km: bestKm } : null;
   }
 
-  /** Cost from an origin, which may be a known place or a raw position. */
-  from(origin, destination) {
-    if (origin.id && this.lookup(origin.id, destination.id)) {
-      const entry = this.lookup(origin.id, destination.id);
-      return {
-        straightKm: haversineKm(origin.lat, origin.lon, destination.lat, destination.lon),
-        roadKm: entry.km,
-        minutes: entry.minutes,
-        source: "road matrix",
-      };
+  /**
+   * Measured costs for a personal point, such as a base or where you are now:
+   * `to` maps each garden (or other point) it reaches, `from` each that reaches
+   * it. Held in memory on this device only; any earlier costs for the id go.
+   */
+  setPersonal(id, { to = {}, from = {} } = {}) {
+    delete this.travel[id];
+    for (const row of Object.values(this.travel)) delete row[id];
+    if (Object.keys(to).length) this.travel[id] = { ...to };
+    for (const [placeId, cost] of Object.entries(from)) {
+      (this.travel[placeId] ||= {})[id] = cost;
     }
-    if (origin.id === destination.id) {
+  }
+
+  /** A point with measured costs of its own: a garden, or a measured personal point. */
+  measured(point) {
+    return Boolean(point.id && this.travel[point.id]);
+  }
+
+  /**
+   * Cost between two points, either of which may be a known place or a raw position.
+   *
+   * Measured where a cost exists. Otherwise an end with no costs of its own is
+   * moved to its nearest garden with a short geometric hop, at either end: a
+   * return to an unmeasured base used to fall back to straight-line geometry.
+   */
+  from(origin, destination) {
+    const straightKm = haversineKm(origin.lat, origin.lon, destination.lat, destination.lon);
+    if (origin.id && origin.id === destination.id) {
       return { straightKm: 0, roadKm: 0, minutes: 0, source: "same place" };
     }
+    const entry = origin.id && destination.id ? this.lookup(origin.id, destination.id) : undefined;
+    if (entry) return { straightKm, roadKm: entry.km, minutes: entry.minutes, source: "road matrix" };
 
-    const snapped = this.snap(origin.lat, origin.lon);
-    if (snapped && snapped.place.id !== destination.id) {
-      const entry = this.lookup(snapped.place.id, destination.id);
-      if (entry) {
-        const hop = this.geometry(origin.lat, origin.lon, snapped.place.lat, snapped.place.lon);
-        return {
-          straightKm: haversineKm(origin.lat, origin.lon, destination.lat, destination.lon),
-          roadKm: hop.roadKm + entry.km,
-          minutes: hop.minutes + entry.minutes,
-          source: `road matrix via ${snapped.place.name}`,
-          snappedTo: snapped.place.name,
-          snapKm: snapped.km,
-        };
-      }
-    }
-    if (snapped && snapped.place.id === destination.id) {
+    const start = this.measured(origin) ? null : this.snap(origin.lat, origin.lon);
+    const end = this.measured(destination) ? null : this.snap(destination.lat, destination.lon);
+    const from = start ? start.place : origin;
+    const to = end ? end.place : destination;
+    if (from.id === to.id) {
       const hop = this.geometry(origin.lat, origin.lon, destination.lat, destination.lon);
-      return { ...hop, source: "geometry (you are here)" };
+      return start ? { ...hop, source: "geometry (you are here)" } : hop;
     }
-    return this.geometry(origin.lat, origin.lon, destination.lat, destination.lon);
+    const middle = this.lookup(from.id, to.id);
+    if (!middle) return this.geometry(origin.lat, origin.lon, destination.lat, destination.lon);
+
+    const none = { roadKm: 0, minutes: 0 };
+    const first = start ? this.geometry(origin.lat, origin.lon, from.lat, from.lon) : none;
+    const last = end ? this.geometry(to.lat, to.lon, destination.lat, destination.lon) : none;
+    const via = [start?.place.name, end?.place.name].filter(Boolean).join(" and ");
+    return {
+      straightKm,
+      roadKm: first.roadKm + middle.km + last.roadKm,
+      minutes: first.minutes + middle.minutes + last.minutes,
+      source: `road matrix via ${via}`,
+      snappedTo: (start || end).place.name,
+      snapKm: (start || end).km,
+    };
   }
 
   between(a, b) {

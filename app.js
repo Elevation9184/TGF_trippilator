@@ -17,8 +17,11 @@ import { createMap } from "./map.js";
 import { Preselection, doneToday, mapStates, matchesSearch, searchTerm } from "./preselect.js";
 import * as edit from "./editor.js";
 import * as opening from "./opening.js";
+import * as position from "./position.js";
 
 const STORE_BASE = "tgo.base.v1";
+// Where you were at the last GPS fix. Kept so a reopened app still knows.
+const STORE_HERE = "tgo.here.v1";
 const STORE_VISITS = "tgo.visits.v1";
 // Holds the locked-in gardens. The name predates Preselect; the plan and the
 // locked-in set are one thing, so an existing plan carries straight over.
@@ -72,6 +75,9 @@ const state = {
   map: null,
   mapView: null,
   order: "detour",
+  // The last GPS fix, and a counter bumped whenever personal road costs change.
+  here: null,
+  travelVersion: 0,
   // Garden Edit: which gardens are highlighted, and what can be undone.
   // Neither survives a reload; both are about the editing in hand.
   picked: new Set(),
@@ -116,6 +122,10 @@ async function load() {
   state.pre = new Preselection({ locked: readStore(STORE_PLAN, []), lingering: view.lingering || [] });
   state.pre.retain(new Set(state.byId.keys()));
   state.done = readStore(STORE_DONE, null);
+  state.here = readStore(STORE_HERE, null);
+  // Road costs measured for the base or here earlier, back into the model.
+  if (state.base?.travel) state.model.setPersonal(position.BASE_ID, state.base.travel);
+  if (state.here?.travel) state.model.setPersonal(position.HERE_ID, state.here.travel);
 }
 
 function savePlan() {
@@ -181,20 +191,19 @@ function sortedPlaces() {
   return [...state.bundle.places].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function fillPlaceSelect(select, { includeBase = false } = {}) {
+function fillPlaceSelect(select, { includeBase = false, includeHere = false } = {}) {
+  const previous = select.value;
   select.innerHTML = "";
-  if (includeBase) {
+  const add = (value, text) => {
     const option = document.createElement("option");
-    option.value = "@base";
-    option.textContent = state.base ? `${state.base.name} (your start)` : "Set a start point first";
+    option.value = value;
+    option.textContent = text;
     select.append(option);
-  }
-  for (const place of sortedPlaces()) {
-    const option = document.createElement("option");
-    option.value = place.id;
-    option.textContent = place.name;
-    select.append(option);
-  }
+  };
+  if (includeBase) add("@base", state.base ? `B · your base (${state.base.name})` : "B · your base (not set yet)");
+  if (includeHere) add("@here", state.here ? `Here (${position.ageText(state.here.at)})` : "Here (press Here first)");
+  for (const place of sortedPlaces()) add(place.id, place.name);
+  if ([...select.options].some((option) => option.value === previous)) select.value = previous;
 }
 
 /** One entry per town that has gardens, with how many. */
@@ -250,10 +259,8 @@ function openingTag(place, day) {
 
 /** The origin the engine works with: either a known place or the private base. */
 function originFrom(select) {
-  if (select.value === "@base") {
-    if (!state.base) return null;
-    return { id: null, name: state.base.name, lat: state.base.lat, lon: state.base.lon };
-  }
+  if (select.value === "@base") return baseOrigin();
+  if (select.value === "@here") return hereOrigin();
   return state.byId.get(select.value) || null;
 }
 
@@ -371,7 +378,8 @@ const MAX_WAYPOINTS = 9;
 function openInMaps(start, stops, finish) {
   const url = new URL("https://www.google.com/maps/dir/");
   url.searchParams.set("api", "1");
-  url.searchParams.set("origin", `${start.lat},${start.lon}`);
+  // Without a start, Google Maps begins from the phone's live position.
+  if (start) url.searchParams.set("origin", `${start.lat},${start.lon}`);
   url.searchParams.set("destination", `${finish.lat},${finish.lon}`);
   if (stops.length) {
     url.searchParams.set("waypoints", stops.map((p) => `${p.lat},${p.lon}`).join("|"));
@@ -453,6 +461,7 @@ function render() {
   const matches = criteriaMatches();
   const pool = poolPlaces(matches);
   updateSummary(pool);
+  updateWhere();
   if (el("preselect-dialog").open) renderPreselect(matches, pool);
   if (el("edit-dialog").open) renderEditor(pool);
 
@@ -469,7 +478,7 @@ function render() {
   const origin = originFrom(el("origin"));
   // My day can still order chosen gardens without a start point.
   if (!origin && state.mode !== "route") {
-    status.textContent = "Set a start point to begin.";
+    status.textContent = "Set your base, or press Here, to begin.";
     el("via-handoff").hidden = true;
     el("plan").hidden = true;
     return;
@@ -617,24 +626,36 @@ function renderPlan(origin) {
   if (state.mode !== "route") return;
 
   list.innerHTML = "";
+  const base = baseOrigin();
+  const fromHere = origin?.id === position.HERE_ID;
   const done = new Set(doneIds());
   // Gardens done today stay in the route, so it keeps its shape as the day goes.
+  // Re-planned from here, they are behind you: listed as done, not routed.
+  const doneToShow = [...done].map((id) => state.byId.get(id)).filter(Boolean);
   const chosen = routable(
-    [...lockedPlaces(), ...[...done].map((id) => state.byId.get(id))].filter(
-      (place, index, all) => place && all.findIndex((other) => other.id === place.id) === index
+    (fromHere ? lockedPlaces() : [...lockedPlaces(), ...doneToShow]).filter(
+      (place, index, all) => all.findIndex((other) => other.id === place.id) === index
     )
   );
   el("plan-no-start").hidden = Boolean(origin) || !chosen.length;
-  el("return-home").closest("label").hidden = !origin;
+  el("return-home").closest("label").hidden = !base;
+  el("head-base").hidden = !base;
+  if (base) {
+    const toBase = state.here ? state.model.from(hereOrigin(), base) : null;
+    el("head-base-label").textContent = toBase ? `Head to base · ${toBase.roadKm.toFixed(0)} km` : "Head to base";
+  }
+  if (fromHere) doneToShow.forEach((place) => list.append(stopItem(place, { done: true, seenButton: false })));
   if (!chosen.length) {
     summary.textContent = "";
     el("navigate").hidden = true;
     return;
   }
 
-  const returnHome = el("return-home").checked;
+  const returnHome = el("return-home").checked && Boolean(base);
+  const finish = returnHome ? base : null;
   const route = origin
-    ? memoRoute("day", chosen, origin, returnHome, () => engine.buildRoute(chosen, origin, state.model, returnHome))
+    ? memoRoute("day", chosen, origin, [returnHome, base?.lat, base?.lon], () =>
+        engine.buildRoute(chosen, origin, state.model, false, finish))
     : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
 
   const addStop = (place) => list.append(stopItem(place, { done: done.has(place.id), seenButton: true }));
@@ -654,7 +675,8 @@ function renderPlan(origin) {
   const remaining = route.places.filter((place) => !done.has(place.id));
   const hours = (route.totalMinutes / 60).toFixed(1);
   summary.textContent =
-    `${route.places.length} stops${done.size ? ` (${done.size} done)` : ""} · ${route.totalKm.toFixed(1)} km · ` +
+    (fromHere ? "From where you are · " : "") +
+    `${route.places.length} stops${done.size && !fromHere ? ` (${done.size} done)` : ""} · ${route.totalKm.toFixed(1)} km · ` +
     `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up` +
     (route.method === "exact" ? "" : " · order approximate above 15 stops") +
     (checkDay() ? ` · opening checked for ${opening.dayLabel(checkDay())}` : "");
@@ -663,9 +685,10 @@ function renderPlan(origin) {
   el("navigate").onclick = () => {
     // The app plans; the phone navigates. Only what is left, in route order.
     const stops = [...remaining];
-    const start = origin || stops.shift();
-    const finish = origin && returnHome ? origin : stops.pop() || start;
-    openInMaps(start, stops.slice(0, MAX_WAYPOINTS), finish);
+    // From here, let Google start from the live position rather than the last fix.
+    const start = fromHere ? null : origin || stops.shift();
+    const end = finish || stops.pop() || start;
+    openInMaps(start, stops.slice(0, MAX_WAYPOINTS), end);
   };
 }
 
@@ -1117,6 +1140,7 @@ function wireEditor() {
 
 /** What a press-and-hold on a pin shows: enough to confirm it is the right one. */
 function describePlace(place) {
+  if (place.kind === "base" || place.kind === "here") return describeMarker(place);
   const locked = state.pre.isLocked(place.id);
   const what = locked
     ? "in your plan · tap to release"
@@ -1143,6 +1167,7 @@ function memoRoute(kind, chosen, origin, extra, solve) {
     chosen.map((place) => `${place.id}:${place.minutes ?? ""}`).sort(),
     origin ? [origin.id, origin.lat, origin.lon] : null,
     extra,
+    state.travelVersion,
   ]);
   if (!routeMemo.has(key)) {
     routeMemo.set(key, solve());
@@ -1199,6 +1224,7 @@ function renderMap(matches) {
     greyed: pinState === "greyed",
   }));
   state.map.setPlaces(visible, state.bundle.places);
+  state.map.setMarkers(mapMarkers());
   const count = (wanted) => drawn.filter((entry) => entry.state === wanted).length;
   el("map-count").textContent =
     `${count("locked")} in plan · ${count("available")} available · ${count("greyed")} greyed`;
@@ -1217,6 +1243,7 @@ function wire() {
     button.addEventListener("click", () => {
       document.querySelectorAll(".mode").forEach((b) => b.classList.remove("is-active"));
       button.classList.add("is-active");
+      if (state.mode === "map" && button.dataset.mode !== "map") finishPlacingBase();
       state.mode = button.dataset.mode;
       showModeControls();
       saveView();
@@ -1335,7 +1362,6 @@ function wire() {
     event.target.value = "";
   });
 
-  el("plan-set-start").addEventListener("click", () => el("base-button").click());
 
   el("map-select").addEventListener("click", () => {
     if (state.map) state.map.setSelecting(!state.map.selecting);
@@ -1353,47 +1379,364 @@ function wire() {
   el("via-clear").addEventListener("click", clearPlan);
   el("clear-plan").addEventListener("click", clearPlan);
 
-  el("base-button").addEventListener("click", () => {
-    fillPlaceSelect(el("base-place"));
-    el("base-status").textContent = "";
-    el("base-dialog").showModal();
-  });
+  wireWhere();
+}
 
-  el("use-gps").addEventListener("click", () => {
+/* ------------------------------------------------------- base and here -- */
+
+/** The base as the engine sees it, or null. */
+function baseOrigin() {
+  const base = state.base;
+  return base ? { id: position.BASE_ID, name: `base (${base.name})`, lat: base.lat, lon: base.lon } : null;
+}
+
+/** Where you were at the last fix, or null. */
+function hereOrigin() {
+  const here = state.here;
+  return here ? { id: position.HERE_ID, name: "where you are", lat: here.lat, lon: here.lon } : null;
+}
+
+/** Road costs changed: routes solved before are no longer right. */
+function travelChanged() {
+  state.travelVersion += 1;
+}
+
+function gardensWithCoordinates() {
+  return state.bundle.places.filter((place) => place.lat != null && place.lon != null);
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Measure road distances between the base and every garden, both ways, once.
+ * Kept with the base on this device; without them, estimates stand in.
+ */
+async function measureBase() {
+  const base = state.base;
+  if (!base) return false;
+  const gardens = gardensWithCoordinates();
+  const point = { lat: base.lat, lon: base.lon };
+  try {
+    const [out, back] = await Promise.all([
+      fetchJson(position.roadTableUrl(point, gardens, "to")),
+      fetchJson(position.roadTableUrl(point, gardens, "from")),
+    ]);
+    const to = position.roadTableRows(out, gardens, "to");
+    const from = position.roadTableRows(back, gardens, "from");
+    if (!Object.keys(to).length || state.base !== base) return false;
+    base.travel = { to, from };
+    base.measuredAt = new Date().toISOString();
+    writeStore(STORE_BASE, base);
+    state.model.setPersonal(position.BASE_ID, base.travel);
+    travelChanged();
+    // Here's costs to the base were measured against the old one, if any.
+    if (state.here) measureHere();
+    render();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Measure from where you are to every garden and the base. Online only; estimates otherwise. */
+async function measureHere() {
+  const here = state.here;
+  if (!here) return false;
+  const targets = gardensWithCoordinates();
+  const base = baseOrigin();
+  if (base) targets.push(base);
+  try {
+    const json = await fetchJson(position.roadTableUrl({ lat: here.lat, lon: here.lon }, targets, "to"));
+    const to = position.roadTableRows(json, targets, "to");
+    if (!Object.keys(to).length || state.here !== here) return false;
+    here.travel = { to };
+    writeStore(STORE_HERE, here);
+    state.model.setPersonal(position.HERE_ID, here.travel);
+    travelChanged();
+    render();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** One GPS fix. Not tracking: taken when asked, or when the app is opened again. */
+function refreshHere({ quiet = false } = {}) {
+  return new Promise((resolve) => {
     if (!navigator.geolocation) {
-      el("base-status").textContent = "This browser has no location support.";
-      return;
+      if (!quiet) el("status").textContent = "This browser has no location support.";
+      return resolve(false);
     }
-    el("base-status").textContent = "Finding you…";
+    el("here-label").textContent = "Finding…";
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        el("base-lat").value = position.coords.latitude.toFixed(6);
-        el("base-lon").value = position.coords.longitude.toFixed(6);
-        el("base-status").textContent = "Got it. Press Save.";
+      (fix) => {
+        state.here = {
+          lat: fix.coords.latitude,
+          lon: fix.coords.longitude,
+          accuracy: Math.round(fix.coords.accuracy),
+          at: new Date().toISOString(),
+        };
+        writeStore(STORE_HERE, state.here);
+        state.model.setPersonal(position.HERE_ID, {});
+        travelChanged();
+        render();
+        measureHere();
+        resolve(true);
       },
       () => {
-        el("base-status").textContent =
-          "Location refused or unavailable. Location needs a secure (https) connection.";
-      }
+        updateWhere();
+        if (!quiet) {
+          el("status").textContent = "Location refused or unavailable. It needs permission and a secure (https) connection.";
+        }
+        resolve(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   });
+}
 
-  el("base-save").addEventListener("click", () => {
-    const lat = Number(el("base-lat").value);
-    const lon = Number(el("base-lon").value);
-    if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0) {
-      state.base = { name: "My start", lat, lon };
-    } else {
-      const place = state.byId.get(el("base-place").value);
-      if (place) state.base = { name: place.name, lat: place.lat, lon: place.lon };
+/** On opening the app again, a stale fix is refreshed if location is already allowed. */
+async function refreshHereIfAllowed() {
+  if (!state.here || !position.isStale(state.here)) return;
+  try {
+    const permission = await navigator.permissions?.query({ name: "geolocation" });
+    if (permission?.state === "granted") refreshHere({ quiet: true });
+  } catch {
+    /* No permissions API: wait to be asked. */
+  }
+}
+
+/** The two header buttons say what they hold. */
+function updateWhere() {
+  el("base-label").textContent = state.base ? state.base.name : "Set base";
+  el("here-label").textContent = state.here ? position.ageText(state.here.at) : "Here";
+  el("here-button").classList.toggle("is-set", Boolean(state.here));
+  el("base-button").classList.toggle("is-set", Boolean(state.base));
+  // "Here (4 min ago)" in the Starting from list ages too.
+  const hereOption = el("origin").querySelector('option[value="@here"]');
+  if (hereOption) {
+    hereOption.textContent = state.here ? `Here (${position.ageText(state.here.at)})` : "Here (press Here first)";
+  }
+}
+
+function mapMarkers() {
+  const markers = [];
+  if (state.base) markers.push({ kind: "base", ...state.base });
+  if (state.here) markers.push({ kind: "here", ...state.here });
+  return markers;
+}
+
+function describeMarker(marker) {
+  if (marker.kind === "base") {
+    const measured = marker.travel ? "road distances measured" : "road distances estimated";
+    return `
+      <div class="map-popup-nr">B · your base</div>
+      <div class="map-popup-name">${escapeHtml(marker.name)}</div>
+      ${marker.address ? `<div class="map-popup-address">${escapeHtml(marker.address)}</div>` : ""}
+      <div class="map-popup-meta">${measured}</div>`;
+  }
+  const km = state.base ? state.model.from(hereOrigin(), baseOrigin()) : null;
+  return `
+    <div class="map-popup-nr">You were here</div>
+    <div class="map-popup-name">${escapeHtml(position.ageText(marker.at))}</div>
+    <div class="map-popup-meta">to within about ${marker.accuracy ?? "?"} m${
+      km ? ` · ${km.roadKm.toFixed(1)} km to base` : ""
+    }</div>`;
+}
+
+/* The base dialog: an address, a GPS fix at the base, or coordinates. */
+
+let pendingBase = null;
+
+function setPendingBase(candidate, message) {
+  pendingBase = candidate;
+  el("base-save").disabled = !candidate;
+  el("base-status").textContent = message || "";
+}
+
+function openBaseDialog() {
+  const base = state.base;
+  el("base-current").hidden = !base;
+  if (base) {
+    el("base-current").innerHTML = `Current base: <strong>${escapeHtml(base.name)}</strong> · ${
+      base.travel
+        ? "road distances measured"
+        : 'road distances estimated <button type="button" id="base-measure" class="link">Measure now</button>'
+    }`;
+  }
+  el("base-address").value = base?.address || "";
+  el("base-results").innerHTML = "";
+  el("base-lat").value = "";
+  el("base-lon").value = "";
+  el("base-clear").hidden = !base;
+  setPendingBase(null);
+  el("base-dialog").showModal();
+}
+
+async function lookUpAddress() {
+  const address = el("base-address").value.trim();
+  if (address.length < 4) {
+    setPendingBase(null, "Type a little more of the address.");
+    return;
+  }
+  setPendingBase(null, "Looking it up…");
+  el("base-results").innerHTML = "";
+  try {
+    const candidates = position.addressCandidates(await fetchJson(position.addressSearchUrl(address)));
+    if (!candidates.length) {
+      setPendingBase(null, "No match. Try the street and town only, or use your location when you are there.");
+      return;
     }
-    if (state.base) {
-      writeStore(STORE_BASE, state.base);
-      el("base-button").textContent = state.base.name;
-      fillPlaceSelect(el("origin"), { includeBase: true });
-      fillPlaceSelect(el("destination"), { includeBase: true });
+    el("base-results").innerHTML = candidates
+      .map((c, i) => `<li><button type="button" data-candidate="${i}">${escapeHtml(c.label)}</button></li>`)
+      .join("");
+    el("base-results")._candidates = candidates;
+    setPendingBase(null, candidates.length === 1 ? "One match. Tap it to choose it." : "Tap the right one.");
+  } catch {
+    setPendingBase(null, "The address service could not be reached. Try again, or use your location when you are there.");
+  }
+}
+
+/** Save the chosen base, then show it on the map to confirm, and measure it. */
+function saveBase() {
+  if (!pendingBase) return;
+  state.base = {
+    name: pendingBase.name,
+    address: pendingBase.label || null,
+    lat: pendingBase.lat,
+    lon: pendingBase.lon,
+    source: pendingBase.source,
+    savedAt: new Date().toISOString(),
+  };
+  writeStore(STORE_BASE, state.base);
+  state.model.setPersonal(position.BASE_ID, {});
+  travelChanged();
+  el("base-dialog").close();
+  fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
+  fillPlaceSelect(el("destination"), { includeBase: true });
+  el("origin").value = "@base";
+  saveView();
+  startPlacingBase();
+}
+
+/** On the map, B where the lookup put it; a tap moves it. Measured when done. */
+function startPlacingBase() {
+  document.querySelector('[data-mode="map"]').click();
+  el("map-base-hint").hidden = false;
+  el("map-base-text").innerHTML = "Is <strong>B</strong> in the right place? Tap where your base is to move it.";
+  state.map.setPicking((lat, lon) => {
+    state.base.lat = lat;
+    state.base.lon = lon;
+    state.base.source = "map";
+    delete state.base.travel;
+    writeStore(STORE_BASE, state.base);
+    state.model.setPersonal(position.BASE_ID, {});
+    travelChanged();
+    el("map-base-text").innerHTML = "<strong>B</strong> moved. Tap again to adjust, or press Done.";
+    render();
+  });
+  state.map.centreOn(state.base.lat, state.base.lon, 60);
+  render();
+}
+
+async function finishPlacingBase() {
+  if (el("map-base-hint").hidden) return;
+  state.map?.setPicking(null);
+  el("map-base-hint").hidden = true;
+  if (state.base && !state.base.travel) {
+    el("status").textContent = "Measuring road distances to your base…";
+    const ok = await measureBase();
+    el("status").textContent = ok
+      ? `Road distances from ${state.base.name} to every garden measured.`
+      : "The routing service could not be reached; distances to your base are estimates for now.";
+  }
+}
+
+function wireWhere() {
+  el("base-button").addEventListener("click", openBaseDialog);
+  el("plan-set-start").addEventListener("click", openBaseDialog);
+  el("base-lookup").addEventListener("click", lookUpAddress);
+  // Enter in the address box looks it up rather than closing the dialog.
+  el("base-address").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      lookUpAddress();
+    }
+  });
+  el("base-results").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-candidate]");
+    if (!button) return;
+    const candidate = el("base-results")._candidates[Number(button.dataset.candidate)];
+    el("base-results").querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b === button));
+    setPendingBase({ ...candidate, source: "address" }, "Press Save, then check B on the map.");
+  });
+  el("use-gps").addEventListener("click", () => {
+    if (!navigator.geolocation) return setPendingBase(null, "This browser has no location support.");
+    setPendingBase(null, "Finding you…");
+    navigator.geolocation.getCurrentPosition(
+      (fix) =>
+        setPendingBase(
+          { name: "My base", lat: fix.coords.latitude, lon: fix.coords.longitude, source: "gps" },
+          `Found, to within about ${Math.round(fix.coords.accuracy)} m. Press Save.`
+        ),
+      () => setPendingBase(null, "Location refused or unavailable."),
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  });
+  for (const id of ["base-lat", "base-lon"]) {
+    el(id).addEventListener("input", () => {
+      const point = position.parseCoordinates(el("base-lat").value, el("base-lon").value);
+      setPendingBase(
+        point ? { name: "My base", ...point, source: "coordinates" } : null,
+        point ? "Press Save." : "Latitude and longitude in New Zealand, such as -39.06 and 174.07."
+      );
+    });
+  }
+  el("base-save").addEventListener("click", saveBase);
+  el("base-current").addEventListener("click", async (event) => {
+    if (!event.target.closest("#base-measure")) return;
+    el("base-status").textContent = "Measuring…";
+    const ok = await measureBase();
+    el("base-status").textContent = ok ? "Measured." : "The routing service could not be reached. Try again later.";
+    if (ok) openBaseDialog();
+  });
+  el("base-clear").addEventListener("click", () => {
+    state.base = null;
+    try {
+      localStorage.removeItem(STORE_BASE);
+    } catch {
+      /* Nothing stored to remove. */
+    }
+    state.model.setPersonal(position.BASE_ID, {});
+    travelChanged();
+    el("base-dialog").close();
+    fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
+    fillPlaceSelect(el("destination"), { includeBase: true });
+    render();
+  });
+  el("map-base-done").addEventListener("click", finishPlacingBase);
+
+  el("here-button").addEventListener("click", async () => {
+    const ok = await refreshHere();
+    if (ok && state.mode === "map") state.map?.centreOn(state.here.lat, state.here.lon, 30);
+  });
+  el("replan-here").addEventListener("click", async () => {
+    if (await refreshHere()) {
+      el("origin").value = "@here";
+      saveView();
       render();
     }
+  });
+  el("head-base").addEventListener("click", () => {
+    // No start given: Google Maps starts from the phone's live position.
+    if (state.base) openInMaps(null, [], baseOrigin());
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshHereIfAllowed();
   });
 }
 
@@ -1427,15 +1770,17 @@ if ("serviceWorker" in navigator) {
 
 load()
   .then(() => {
-    fillPlaceSelect(el("origin"), { includeBase: true });
+    fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
     fillPlaceSelect(el("destination"), { includeBase: true });
     fillAreaSelect();
     fillOpenOnSelect();
-    if (state.base) el("base-button").textContent = state.base.name;
     wire();
     restoreView();
     setPane("gardens");
     render();
+    // A base saved while offline, or before measuring existed, is measured now.
+    if (state.base && !state.base.travel && navigator.onLine) measureBase();
+    refreshHereIfAllowed();
   })
   .catch((error) => {
     el("status").textContent = `${error.message}. Serve this directory over http rather than opening the file directly.`;
