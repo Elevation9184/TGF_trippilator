@@ -388,8 +388,17 @@ body.map-mode .controls { display: none !important; }
   stroke: #a69c88;
   stroke-width: 1.5;
 }
+.map-tertiary {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke: #c4bcab;
+  stroke-width: 1.1;
+}
 @media (prefers-color-scheme: dark) {
   .map-minor { stroke: #7a7366; }
+  .map-tertiary { stroke: #5c574d; }
 }
 .map-road { stroke: #d9a441; stroke-width: 2.2; }
 .map-road-label {

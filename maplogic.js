@@ -146,6 +146,14 @@ export function showMinorRoads(scale) {
   return scale >= MINOR_ROADS_FROM_SCALE;
 }
 
+// Tertiary roads, the ones that reach most gardens, one zoom step later again:
+// there are many more of them, and across a district they would be a tangle.
+export const TERTIARY_ROADS_FROM_SCALE = 18;
+
+export function showTertiaryRoads(scale) {
+  return scale >= TERTIARY_ROADS_FROM_SCALE;
+}
+
 /**
  * Keep the same ground in the middle when the map's box changes size, as when a
  * phone rotates. Returns the view and the size to remember.
