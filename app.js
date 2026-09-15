@@ -1399,12 +1399,30 @@ function wire() {
 
 // Registering the worker is what makes the app installable and offline-capable.
 // It needs https (or localhost); it simply does not register elsewhere.
+const BUILD = document.querySelector('meta[name="build"]')?.content || "dev";
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => {
-      /* Offline support is a bonus, not a requirement for the page to work. */
+  if (BUILD === "dev") {
+    // Working copy: always the files on disk. An offline cache here would keep
+    // serving yesterday's code, because only published builds change its name.
+    navigator.serviceWorker.getRegistrations().then((all) => all.forEach((r) => r.unregister()));
+    caches?.keys().then((keys) => keys.filter((k) => k.startsWith("tgo-")).forEach((k) => caches.delete(k)));
+  } else {
+    // A new version takes over as soon as it has installed. Reload once when it
+    // does, so the screen shows the new code rather than waiting for next time.
+    // Not on a first visit, when there was no old version to replace.
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      location.reload();
     });
-  });
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {
+        /* Offline support is a bonus, not a requirement for the page to work. */
+      });
+    });
+  }
 }
 
 load()

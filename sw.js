@@ -9,7 +9,7 @@
  * Bump CACHE when publishing a new bundle. Old caches are removed on activate.
  */
 
-const CACHE = "tgo-20260915-1357";
+const CACHE = "tgo-20260915-1409";
 const ASSETS = [
   "./",
   "./index.html",
@@ -28,7 +28,11 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+  // Straight from the server, never the browser's own HTTP cache. GitHub Pages
+  // lets browsers keep files for ten minutes, and without this a new version
+  // could install carrying an old file, then serve it until the next publish.
+  const fresh = ASSETS.map((url) => new Request(url, { cache: "reload" }));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(fresh)));
   self.skipWaiting();
 });
 
