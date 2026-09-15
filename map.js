@@ -3,7 +3,7 @@
  *
  * Gestures, as agreed:
  *   press and hold on a pin   name, numbers and address pop up
- *   tap a pin                 dismiss any popup, add or remove the garden
+ *   tap a pin                 dismiss any popup, lock the garden in or release it
  *   tap empty map             dismiss the popup, change nothing
  *   one finger drag           move the map
  *   pinch                     zoom about the fingers
@@ -131,7 +131,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
         sy: at.y,
         label: place.label,
         planned: isPlanned(place.id),
-        locked: Boolean(place.locked),
+        greyed: Boolean(place.greyed),
         place,
       };
     });
@@ -143,7 +143,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       if (!onScreen) continue;
       const classes = ["map-pin", `map-pin-${pin.place.festivalClass}`];
       if (pin.planned) classes.push("is-planned");
-      if (pin.locked) classes.push("is-locked");
+      if (pin.greyed) classes.push("is-greyed");
       if (preview?.has(pin.id)) classes.push(area.selection.target ? "will-add" : "will-remove");
       const group = node("g", { class: classes.join(" ") });
       if (labelled.has(pin.id)) {
@@ -286,8 +286,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (gesture.kind === "area" && area) {
       area.rect.x1 = at.x;
       area.rect.y1 = at.y;
-      // Greyed-out gardens are visible but not selectable.
-      area.selection.update(area.rect, pins.filter((pin) => !pin.locked));
+      // A box sweeps up what is on offer; greyed-out gardens are outside the
+      // preselection, and taking a whole corner of them in would be a surprise.
+      area.selection.update(area.rect, pins.filter((pin) => !pin.greyed));
     } else if (gesture.kind === "press") {
       view = geo.panBy(view, at.x - gesture.last.x, at.y - gesture.last.y);
     }
@@ -335,12 +336,12 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     if (finished.moved) {
       commitView();
     } else if (!finished.held) {
-      // A tap. On a pin: dismiss any popup and toggle. On empty map: just dismiss.
+      // A tap. On a pin: dismiss any popup and lock in or release. A greyed-out
+      // garden can be tapped too; that is how one outside the filters is added.
+      // On empty map: just dismiss.
       const pin = geo.hitTest(pins, finished.start.x, finished.start.y, TAP_RADIUS);
       hidePopup();
-      // A greyed-out garden does not toggle; show why instead of doing nothing.
-      if (pin?.locked) showPopup(pin);
-      else if (pin) onToggle(pin.id);
+      if (pin) onToggle(pin.id);
     }
     schedule();
   }
@@ -406,7 +407,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       }
       schedule();
     },
-    /** Places to draw: only those the current filters let through. */
+    /** Places to draw, each marked greyed or not. Seen gardens are left out by the caller. */
     setPlaces(visible, all) {
       places = visible;
       extent = all.map((p) => geo.project(p.lat, p.lon));

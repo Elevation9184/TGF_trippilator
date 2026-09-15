@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260915-1045" />
+    <meta name="build" content="20260915-1245" />
   </head>
   <body>
     <header>
@@ -26,12 +26,12 @@
       <button class="mode" data-mode="route" role="tab">My day</button>
     </nav>
 
-    <!-- One line on every tab: what is filtered, and the way in to change it. -->
+    <!-- One line on every tab: what is in play, and the way in to change it. -->
     <div class="filter-strip">
-      <button id="filters-button" type="button" class="filters-button" aria-haspopup="dialog">
-        Filters <span id="filters-count" class="filters-count" hidden></span>
+      <button id="preselect-button" type="button" class="filters-button" aria-haspopup="dialog">
+        Preselect <span id="plan-count" class="filters-count" hidden></span>
       </button>
-      <span id="filters-summary" class="filters-summary"></span>
+      <span id="preselect-summary" class="filters-summary"></span>
     </div>
 
     <section id="map-view" class="map-view" hidden>
@@ -41,7 +41,8 @@
         <span id="map-count" class="map-count"></span>
       </div>
       <p id="map-hint" class="map-hint" hidden>
-        Drag a box. The first garden it catches decides: add them all, or remove them all.
+        Drag a box. The first garden it catches decides: lock them all in, or release them all.
+        Greyed-out gardens are left alone.
       </p>
       <div id="map-canvas" class="map-canvas"></div>
     </section>
@@ -55,6 +56,16 @@
         <label id="destination-field" hidden>
           Heading to
           <select id="destination"></select>
+        </label>
+        <label id="detour-field" class="narrow" hidden>
+          Detour up to
+          <select id="detour-cap">
+            <option value="0">Any</option>
+            <option value="2">2 km</option>
+            <option value="5">5 km</option>
+            <option value="10">10 km</option>
+            <option value="20">20 km</option>
+          </select>
         </label>
         <label id="order-field" hidden>
           Order by
@@ -155,100 +166,131 @@
       </form>
     </dialog>
 
-    <dialog id="filters-dialog" class="filters-dialog">
-      <form method="dialog">
-        <div class="sheet-head">
-          <h2>Filters</h2>
-          <button value="done" class="primary">Done</button>
+    <dialog id="preselect-dialog" class="preselect" data-pane="gardens">
+      <div class="ps-head">
+        <h2 tabindex="-1" autofocus>Preselect</h2>
+        <div class="ps-tabs" role="tablist">
+          <button type="button" class="ps-tab" data-pane="filters" role="tab">Filters</button>
+          <button type="button" class="ps-tab" data-pane="gardens" role="tab">Gardens <span id="ps-tab-count"></span></button>
         </div>
-        <p class="note">The same filters apply on every tab.</p>
+        <button id="preselect-done" type="button" class="primary">Done</button>
+      </div>
+      <label class="ps-search">
+        <span class="visually-hidden">Search gardens</span>
+        <input id="ps-search" type="search" autocomplete="off" enterkeyhint="search"
+          placeholder="Search name, street, area or number (C9)" />
+      </label>
 
-        <fieldset>
-          <legend>What to show</legend>
-          <div class="row">
-            <label>
-              Festival
-              <select id="festival">
-                <option value="Both">Both</option>
-                <option value="Centuria">Centuria</option>
-                <option value="Fringe">Fringe</option>
-              </select>
+      <div class="ps-body">
+        <section class="ps-filters" aria-label="Filters">
+          <fieldset>
+            <legend>What to show</legend>
+            <div class="row">
+              <label>
+                Area
+                <select id="area"><option value="">Any area</option></select>
+              </label>
+              <label>
+                Festival
+                <select id="festival">
+                  <option value="Both">Both</option>
+                  <option value="Centuria">Centuria</option>
+                  <option value="Fringe">Fringe</option>
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>
+                Type
+                <select id="entry-type">
+                  <option value="All">All</option>
+                  <option value="Garden">Gardens</option>
+                  <option value="Place of interest">Places of interest</option>
+                </select>
+              </label>
+              <label>
+                Size
+                <select id="anchor">
+                  <option value="">Any</option>
+                  <option value="Daily anchor">Major (half-day)</option>
+                  <option value="Support">Worth a stop</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="check">
+              <input id="hide-visited" type="checkbox" checked />
+              Hide ones I've seen
             </label>
-            <label>
-              Type
-              <select id="entry-type">
-                <option value="All">All</option>
-                <option value="Garden">Gardens</option>
-                <option value="Place of interest">Places of interest</option>
-              </select>
+
+            <label id="range-field" class="grow">
+              <span>Distance from where I'm starting: <output id="max-km-value">any</output></span>
+              <input id="max-km" type="range" min="0" max="100" step="5" value="0" />
             </label>
-            <label>
-              Size
-              <select id="anchor">
-                <option value="">Any</option>
-                <option value="Daily anchor">Major (half-day)</option>
-                <option value="Support">Worth a stop</option>
-              </select>
+            <p id="range-note" class="note" hidden>Needs a starting point, so it is not applied yet.</p>
+
+            <div class="row amenities">
+              <span class="amenity-label">Prefer</span>
+              <label class="chip">Refreshments <input type="checkbox" data-amenity="Refreshments" /></label>
+              <label class="chip">Toilets <input type="checkbox" data-amenity="Toilets" /></label>
+              <label class="chip">Plants <input type="checkbox" data-amenity="Plants for Sale" /></label>
+              <label class="chip">Accessible <input type="checkbox" data-amenity="Accessibility" /></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Best picks</legend>
+            <div class="row">
+              <label>
+                Rated at least
+                <select id="min-interest">
+                  <option value="">Any</option>
+                  <option value="5">5 or more</option>
+                  <option value="7">7 or more</option>
+                  <option value="9">9 or more</option>
+                </select>
+              </label>
+              <label>
+                Rank Nearest by
+                <select id="rank">
+                  <option value="distance">Distance only</option>
+                  <option value="blend">Distance and my ratings</option>
+                </select>
+              </label>
+            </div>
+            <label id="weight-field" class="grow" hidden>
+              My ratings count for <output id="interest-weight-value">35%</output>
+              <input id="interest-weight" type="range" min="0" max="80" step="5" value="35" />
+              <span class="note">Distance counts for the rest.</span>
             </label>
-          </div>
-
-          <label class="check">
-            <input id="hide-visited" type="checkbox" checked />
-            Hide ones I've seen
-          </label>
-          <p class="note">On the map, seen gardens stay in view but greyed out, and can't be added.</p>
-
-          <label id="range-field" class="grow">
-            <span id="max-km-label">Within</span> <output id="max-km-value">no limit</output>
-            <input id="max-km" type="range" min="0" max="100" step="5" value="0" />
-          </label>
-
-          <div class="row amenities">
-            <span class="amenity-label">Prefer</span>
-            <label class="chip">Refreshments <input type="checkbox" data-amenity="Refreshments" /></label>
-            <label class="chip">Toilets <input type="checkbox" data-amenity="Toilets" /></label>
-            <label class="chip">Plants <input type="checkbox" data-amenity="Plants for Sale" /></label>
-            <label class="chip">Accessible <input type="checkbox" data-amenity="Accessibility" /></label>
-          </div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Best picks</legend>
-          <label>
-            Rank Nearest by
-            <select id="rank">
-              <option value="distance">Distance only</option>
-              <option value="blend">Distance and my ratings</option>
-            </select>
-          </label>
-          <label id="weight-field" class="grow" hidden>
-            My ratings count for <output id="interest-weight-value">35%</output>
-            <input id="interest-weight" type="range" min="0" max="80" step="5" value="35" />
-            <span class="note">Distance counts for the rest.</span>
-          </label>
-          <div class="row">
-            <label>
-              Rated at least
-              <select id="min-interest">
-                <option value="">Any</option>
-                <option value="5">5 or more</option>
-                <option value="7">7 or more</option>
-                <option value="9">9 or more</option>
-              </select>
+            <label class="check">
+              <input id="must-visit-only" type="checkbox" />
+              Must visit only
             </label>
-          </div>
-          <label class="check">
-            <input id="must-visit-only" type="checkbox" />
-            Must visit only
-          </label>
-          <p class="note">A minimum rating leaves out gardens you haven't rated yet.</p>
-        </fieldset>
+            <p class="note">A minimum rating leaves out gardens you haven't rated yet.</p>
+          </fieldset>
 
-        <menu>
           <button id="filters-reset" type="button" class="link">Reset filters</button>
-          <button value="done" class="primary">Done</button>
-        </menu>
-      </form>
+        </section>
+
+        <section class="ps-gardens" aria-label="Gardens">
+          <p id="ps-estimate" class="ps-estimate"></p>
+          <div class="ps-list-head">
+            <span id="ps-shown" class="note"></span>
+            <button id="ps-choose-all" type="button">Choose all</button>
+            <button id="ps-release-all" type="button">Release all</button>
+          </div>
+          <ul id="ps-list" class="ps-list"></ul>
+          <div id="ps-outside" hidden>
+            <p class="ps-subhead">Also matching your search, outside your filters</p>
+            <ul id="ps-outside-list" class="ps-list"></ul>
+          </div>
+          <p class="note ps-help">
+            Tick to lock a garden into your plan. Locked-in gardens stay whatever the filters say.
+            Release one and it stays in view until you next change a filter.
+          </p>
+        </section>
+      </div>
     </dialog>
 
     <script type="module" src="app.js"></script>

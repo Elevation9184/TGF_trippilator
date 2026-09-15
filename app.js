@@ -2,36 +2,46 @@
  * Interface for the Taranaki Garden Optimiser.
  *
  * All query logic lives in engine.js, which is a port of the Python and is held
- * to it by tests/test_parity.py. This file only reads controls, calls the
- * engine, and draws the answer.
+ * to it by tests/test_parity.py. The preselection rules live in preselect.js.
+ * This file reads controls, calls those, and draws the answer.
  *
  * Two things are deliberately kept out of the published bundle and held only in
- * this browser: the start point, and what the user has visited or rated. The
- * bundle is read-only reference data that everyone shares; personal state is
- * nobody else's business and never leaves the device.
+ * this browser: the start point, and what the user has visited, rated or
+ * planned. The bundle is read-only reference data that everyone shares;
+ * personal state is nobody else's business and never leaves the device.
  */
 
 import * as engine from "./engine.js";
 import { toCsv, fromCsv } from "./notes.js";
 import { createMap } from "./map.js";
+import { Preselection, doneToday, mapStates, matchesSearch, searchTerm } from "./preselect.js";
 
 const STORE_BASE = "tgo.base.v1";
 const STORE_VISITS = "tgo.visits.v1";
+// Holds the locked-in gardens. The name predates Preselect; the plan and the
+// locked-in set are one thing, so an existing plan carries straight over.
 const STORE_PLAN = "tgo.plan.v1";
+const STORE_DONE = "tgo.done.v1";
 const STORE_VIEW = "tgo.view.v1";
 
 // Every control that shapes what is on screen. A pull-to-refresh on a phone
 // is easy to trigger by accident, and losing the whole query to it is worse
 // than any amount of tidiness gained by starting fresh.
 const VIEW_CONTROLS = [
-  "origin", "destination", "order", "count",
-  "festival", "entry-type", "anchor", "max-km",
+  "origin", "destination", "order", "count", "detour-cap",
+  "area", "festival", "entry-type", "anchor", "max-km",
   "rank", "interest-weight", "min-interest",
 ];
 const VIEW_CHECKBOXES = ["hide-visited", "return-home", "must-visit-only"];
 
-// What "Reset filters" returns to. Everything inside the filter panel.
+// Filters decide which gardens match. Changing one ends any lingering.
+// Ranking choices and the search box do not.
+const CRITERIA_CONTROLS = ["area", "festival", "entry-type", "anchor", "min-interest"];
+const CRITERIA_CHECKBOXES = ["hide-visited", "must-visit-only"];
+
+// What "Reset filters" returns to.
 const FILTER_DEFAULTS = {
+  area: "",
   festival: "Both",
   "entry-type": "All",
   anchor: "",
@@ -42,6 +52,10 @@ const FILTER_DEFAULTS = {
 };
 const FILTER_CHECK_DEFAULTS = { "hide-visited": true, "must-visit-only": false };
 
+// The pool has already applied every filter, so the engine is told to let
+// everything it is given through.
+const OPEN_FILTERS = { includeVisited: true, includeExcluded: true };
+
 const el = (id) => document.getElementById(id);
 const state = {
   bundle: null,
@@ -49,10 +63,12 @@ const state = {
   byId: new Map(),
   base: null,
   visits: new Map(),
-  plan: [],
+  pre: new Preselection(),
+  done: null,
   mode: "nearest",
   map: null,
   mapView: null,
+  order: "detour",
 };
 
 /* Storage can throw in private windows, so never let it break the page. */
@@ -73,6 +89,13 @@ function writeStore(key, value) {
   }
 }
 
+/** The local calendar date. toISOString is UTC, which in New Zealand is yesterday until noon. */
+function today() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 async function load() {
   const response = await fetch("data/bundle.json");
   if (!response.ok) throw new Error(`Could not load data (${response.status})`);
@@ -81,12 +104,19 @@ async function load() {
   state.byId = new Map(state.bundle.places.map((p) => [p.id, p]));
   state.base = readStore(STORE_BASE, null);
   state.visits = new Map(Object.entries(readStore(STORE_VISITS, {})));
-  state.plan = readStore(STORE_PLAN, []).filter((id) => state.byId.has(id));
-  state.order = "detour";
+  const view = readStore(STORE_VIEW, {}) || {};
+  state.pre = new Preselection({ locked: readStore(STORE_PLAN, []), lingering: view.lingering || [] });
+  state.pre.retain(new Set(state.byId.keys()));
+  state.done = readStore(STORE_DONE, null);
+}
+
+function savePlan() {
+  writeStore(STORE_PLAN, state.pre.locked);
+  saveView();
 }
 
 function saveView() {
-  const view = { mode: state.mode, amenities: [], map: state.mapView };
+  const view = { mode: state.mode, amenities: [], map: state.mapView, lingering: [...state.pre.lingering] };
   for (const id of VIEW_CONTROLS) view[id] = el(id).value;
   for (const id of VIEW_CHECKBOXES) view[id] = el(id).checked;
   view.amenities = [...document.querySelectorAll("[data-amenity]")]
@@ -129,8 +159,13 @@ function restoreView() {
       state.mode = view.mode;
     }
   }
+  showModeControls();
+}
+
+function showModeControls() {
   el("destination-field").hidden = state.mode !== "via";
   el("order-field").hidden = state.mode !== "via";
+  el("detour-field").hidden = state.mode !== "via";
   el("count-field").hidden = state.mode === "route";
 }
 
@@ -154,6 +189,22 @@ function fillPlaceSelect(select, { includeBase = false } = {}) {
   }
 }
 
+/** One entry per town that has gardens, with how many. */
+function fillAreaSelect() {
+  const counts = new Map();
+  for (const place of state.bundle.places) {
+    if (place.area) counts.set(place.area, (counts.get(place.area) || 0) + 1);
+  }
+  const select = el("area");
+  const names = [...counts.keys()].sort((a, b) => engine.fold(a).localeCompare(engine.fold(b)));
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = `${name} (${counts.get(name)})`;
+    select.append(option);
+  }
+}
+
 /** The origin the engine works with: either a known place or the private base. */
 function originFrom(select) {
   if (select.value === "@base") {
@@ -163,8 +214,7 @@ function originFrom(select) {
   return state.byId.get(select.value) || null;
 }
 
-function currentFilters() {
-  const maxKm = Number(el("max-km").value);
+function criteriaFilters() {
   return {
     festival: el("festival").value,
     entryType: el("entry-type").value,
@@ -172,11 +222,29 @@ function currentFilters() {
     includeVisited: !el("hide-visited").checked,
     mustVisitOnly: el("must-visit-only").checked,
     minInterest: el("min-interest").value === "" ? null : Number(el("min-interest").value),
-    maxKm: maxKm > 0 ? maxKm : null,
     requireAmenities: [...document.querySelectorAll("[data-amenity]")]
       .filter((box) => box.checked)
       .map((box) => box.dataset.amenity),
   };
+}
+
+/** Ids of the gardens that meet every filter, before anything done by hand. */
+function criteriaMatches() {
+  const area = el("area").value;
+  const maxKm = Number(el("max-km").value);
+  const origin = maxKm > 0 ? originFrom(el("origin")) : null;
+  const ids = new Set();
+  for (const place of engine.eligible(state.bundle.places, criteriaFilters(), state.visits)) {
+    if (area && place.area !== area) continue;
+    if (origin && place.id !== origin.id && state.model.from(origin, place).roadKm > maxKm) continue;
+    ids.add(place.id);
+  }
+  return ids;
+}
+
+/** Everything every tab may draw from: matches, locked in, and lingering. */
+function poolPlaces(matches = criteriaMatches()) {
+  return state.pre.pool(state.bundle.places, matches).filter((place) => place.lat != null && place.lon != null);
 }
 
 function visitOf(id) {
@@ -187,6 +255,34 @@ function setVisit(id, patch) {
   const next = { ...visitOf(id), ...patch };
   state.visits.set(id, next);
   writeStore(STORE_VISITS, Object.fromEntries(state.visits));
+}
+
+function doneIds() {
+  return doneToday(state.done, today()).filter((id) => state.byId.has(id));
+}
+
+function setDone(ids) {
+  state.done = { date: today(), ids };
+  writeStore(STORE_DONE, state.done);
+}
+
+/**
+ * Seen, or not. A garden seen while in the plan leaves the plan but stays in
+ * today's My day as done, so the rest of the route does not reshuffle halfway
+ * through the afternoon. Undoing it puts it back.
+ */
+function markVisited(id, visited) {
+  setVisit(id, { visited, visitedOn: visited ? today() : null });
+  const done = doneIds();
+  if (visited) {
+    if (state.pre.isLocked(id) && !done.includes(id)) setDone([...done, id]);
+    state.pre.forget(id);
+  } else if (done.includes(id)) {
+    setDone(done.filter((other) => other !== id));
+    state.pre.lock([id]);
+  }
+  savePlan();
+  render();
 }
 
 function amenityBadges(place) {
@@ -237,6 +333,10 @@ function mapsLink(place) {
   return `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
 }
 
+function festivalClass(place) {
+  return place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase();
+}
+
 function resultRow(row, index) {
   const place = row.place;
   const visit = visitOf(place.id);
@@ -249,8 +349,8 @@ function resultRow(row, index) {
       ? `<span class="metric">${formatDetour(row.detourKm)}</span><span class="sub">${row.estimate.roadKm.toFixed(0)} out · ${row.onward.roadKm.toFixed(0)} on</span>`
       : `<span class="metric">${row.estimate.roadKm.toFixed(1)} km</span><span class="sub">${Math.round(row.estimate.minutes)} min</span>`;
 
-  const festival = place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase();
-  const inPlan = state.plan.includes(place.id);
+  const festival = festivalClass(place);
+  const inPlan = state.pre.isLocked(place.id);
   const rating = visit.interest ?? place.interest ?? "";
   // Labelling both ends, because a scale whose direction you have to guess
   // invites a whole set of inverted ratings.
@@ -267,19 +367,19 @@ function resultRow(row, index) {
     <div class="rank">${row.detourKm != null && state.order === "route" ? "" : index + 1}</div>
     <div class="figure">${primary}</div>
     <div class="body">
-      <div class="name">${place.name} ${score}</div>
+      <div class="name">${escapeHtml(place.name)} ${score}</div>
       <div class="meta">
         <span class="tag tag-${festival}">${festival}</span>
         ${place.anchor === "Daily anchor" ? '<span class="tag tag-anchor">major</span>' : ""}
         <span class="badges">${amenityBadges(place)}</span>
-        <span class="region">${place.region}</span>
+        <span class="region">${escapeHtml(place.area || place.region)}</span>
         <select class="rate${rating === "" ? "" : " is-rated"}" data-rate="${place.id}"
           title="How interesting is this garden, 1 to 10?">${options}</select>
       </div>
     </div>
     <div class="actions">
       <button type="button" class="${inPlan ? "is-on" : ""}" data-add="${place.id}"
-        title="${inPlan ? "Remove from today's plan" : "Add to today's plan"}">${inPlan ? "✓ Plan" : "+ Plan"}</button>
+        title="${inPlan ? "Release from your plan" : "Lock into your plan"}">${inPlan ? "✓ Plan" : "+ Plan"}</button>
       <button type="button" class="${visit.visited ? "is-on" : ""}" data-visited="${place.id}"
         title="${visit.visited ? "Mark as not visited" : "Mark as visited"}">${visit.visited ? "✓ Seen" : "Seen?"}</button>
       <a href="${mapsLink(place)}" target="_blank" rel="noopener"
@@ -293,12 +393,16 @@ function render() {
   const status = el("status");
   results.innerHTML = "";
 
-  updateFilterSummary();
+  const matches = criteriaMatches();
+  const pool = poolPlaces(matches);
+  updateSummary(pool);
+  if (el("preselect-dialog").open) renderPreselect(matches, pool);
+
   const onMap = state.mode === "map";
   document.body.classList.toggle("map-mode", onMap);
   el("map-view").hidden = !onMap;
   if (onMap) {
-    renderMap();
+    renderMap(matches);
     return;
   }
   state.map?.setSelecting(false);
@@ -309,24 +413,24 @@ function render() {
   if (!origin && state.mode !== "route") {
     status.textContent = "Set a start point to begin.";
     el("via-handoff").hidden = true;
+    el("plan").hidden = true;
     return;
   }
 
-  // "All" is stored as 0, so the whole filtered list can be ticked through.
+  // "All" is stored as 0, so the whole pool can be ticked through.
   const count = Number(el("count").value) || state.bundle.places.length;
   state.order = el("order").value;
-  const filters = currentFilters();
   let rows = [];
 
   if (state.mode === "nearest") {
     if (el("rank").value === "blend") {
       const interest = Number(el("interest-weight").value) / 100;
-      rows = engine.recommend(state.bundle.places, origin, count, state.model, filters, state.visits, {
+      rows = engine.recommend(pool, origin, count, state.model, OPEN_FILTERS, state.visits, {
         distance: 1 - interest,
         interest,
       });
     } else {
-      rows = engine.nearest(state.bundle.places, origin, count, state.model, filters, state.visits);
+      rows = engine.nearest(pool, origin, count, state.model, OPEN_FILTERS, state.visits);
     }
   } else if (state.mode === "via") {
     const destination = originFrom(el("destination"));
@@ -334,17 +438,18 @@ function render() {
       status.textContent = "Choose where you are heading.";
       return;
     }
-    // The cap means the detour here, not the distance out, because the detour
-    // is what is being ranked and what the driver actually pays.
+    const cap = Number(el("detour-cap").value);
     rows = engine.onTheWay(
-      state.bundle.places, origin, destination, count, state.model,
-      { ...filters, maxKm: null }, state.visits, filters.maxKm, el("order").value
+      pool, origin, destination, count, state.model,
+      OPEN_FILTERS, state.visits, cap > 0 ? cap : null, el("order").value
     );
   }
 
   if (state.mode !== "route") {
     if (!rows.length) {
-      status.textContent = "Nothing matched those filters.";
+      status.textContent = pool.length
+        ? "Nothing in your preselection fits here."
+        : "Nothing matches your preselection. Open Preselect to widen it.";
     } else {
       const source = rows[0].estimate.source;
       const ranking =
@@ -352,12 +457,13 @@ function render() {
       status.textContent = `${rows.length} shown${ranking} · ${source}`;
     }
     rows.forEach((row, index) => results.append(resultRow(row, index)));
-    renderViaHandoff(origin, rows);
+    renderViaHandoff(origin);
   } else {
     el("via-handoff").hidden = true;
-    status.textContent = state.plan.length
-      ? ""
-      : "Add gardens from any other tab, then come back here.";
+    status.textContent =
+      state.pre.locked.length || doneIds().length
+        ? ""
+        : "Nothing in your plan yet. Tick gardens in Preselect, tap them on the map, or use + Plan.";
   }
 
   renderPlan(origin);
@@ -367,7 +473,11 @@ function render() {
     `${(state.bundle.generatedAt || "").slice(0, 10)} · build ${build}`;
 }
 
-function renderViaHandoff(origin, rows) {
+function lockedPlaces() {
+  return state.pre.locked.map((id) => state.byId.get(id)).filter((place) => place && place.lat != null);
+}
+
+function renderViaHandoff(origin) {
   const panel = el("via-handoff");
   if (state.mode !== "via") {
     panel.hidden = true;
@@ -379,7 +489,7 @@ function renderViaHandoff(origin, rows) {
   panel.hidden = false;
   list.innerHTML = "";
 
-  const chosen = state.plan.map((id) => state.byId.get(id)).filter(Boolean);
+  const chosen = lockedPlaces();
   if (!chosen.length || !destination) {
     summary.textContent = "Tick + Plan on anything below to build a run.";
     el("via-navigate").disabled = true;
@@ -399,20 +509,9 @@ function renderViaHandoff(origin, rows) {
   const direct = state.model.from(origin, destination).roadKm;
 
   route.legs.forEach((leg, index) => {
-    const drive = document.createElement("li");
-    drive.className = "leg";
-    drive.innerHTML = `<span class="drive">${leg.estimate.roadKm.toFixed(1)} km · ${Math.round(leg.estimate.minutes)} min</span> <span class="to">${leg.to}</span>`;
-    list.append(drive);
+    list.append(legItem(leg));
     const place = route.places[index];
-    if (place) {
-      const stop = document.createElement("li");
-      stop.className = "stop";
-      stop.innerHTML = `
-        <span class="stay">${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}</span>
-        <span class="to">${place.name}</span>
-        <button type="button" class="link" data-remove="${place.id}">remove</button>`;
-      list.append(stop);
-    }
+    if (place) list.append(stopItem(place, { done: false, seenButton: false }));
   });
 
   const hours = (route.totalMinutes / 60).toFixed(1);
@@ -425,6 +524,28 @@ function renderViaHandoff(origin, rows) {
     openInMaps(origin, route.places.slice(0, MAX_WAYPOINTS), destination);
 }
 
+function legItem(leg) {
+  const drive = document.createElement("li");
+  drive.className = "leg";
+  drive.innerHTML = `<span class="drive">${leg.estimate.roadKm.toFixed(1)} km · ${Math.round(leg.estimate.minutes)} min</span> <span class="to">${escapeHtml(leg.to)}</span>`;
+  return drive;
+}
+
+function stopItem(place, { done, seenButton }) {
+  const stop = document.createElement("li");
+  stop.className = done ? "stop is-done" : "stop";
+  const stay = `${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}`;
+  const buttons = done
+    ? `<button type="button" class="link" data-visited="${place.id}" title="Not seen after all: back into the plan">undo</button>`
+    : `${seenButton ? `<button type="button" class="seen" data-visited="${place.id}" title="Seen it: tick off, keep the route as it is">Seen</button>` : ""}
+       <button type="button" class="link" data-remove="${place.id}">remove</button>`;
+  stop.innerHTML = `
+    <span class="stay">${done ? "done ✓" : stay}</span>
+    <span class="to">${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)}</span>
+    ${buttons}`;
+  return stop;
+}
+
 function renderPlan(origin) {
   const panel = el("plan");
   const list = el("plan-list");
@@ -433,107 +554,98 @@ function renderPlan(origin) {
   if (state.mode !== "route") return;
 
   list.innerHTML = "";
-  if (!state.plan.length) {
+  const done = new Set(doneIds());
+  // Gardens done today stay in the route, so it keeps its shape as the day goes.
+  const chosen = [...lockedPlaces(), ...[...done].map((id) => state.byId.get(id))].filter(
+    (place, index, all) => place && all.findIndex((other) => other.id === place.id) === index
+  );
+  el("plan-no-start").hidden = Boolean(origin) || !chosen.length;
+  el("return-home").closest("label").hidden = !origin;
+  if (!chosen.length) {
     summary.textContent = "";
     el("navigate").hidden = true;
     return;
   }
 
-  const chosen = state.plan.map((id) => state.byId.get(id)).filter(Boolean);
   const returnHome = el("return-home").checked;
   const route = origin
     ? memoRoute("day", chosen, origin, returnHome, () => engine.buildRoute(chosen, origin, state.model, returnHome))
     : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
-  el("plan-no-start").hidden = Boolean(origin);
-  el("return-home").closest("label").hidden = !origin;
 
-  const addLeg = (leg) => {
-    const drive = document.createElement("li");
-    drive.className = "leg";
-    drive.innerHTML = `<span class="drive">${leg.estimate.roadKm.toFixed(1)} km · ${Math.round(leg.estimate.minutes)} min</span> <span class="to">${leg.to}</span>`;
-    list.append(drive);
-  };
-  const addStop = (place) => {
-    const stop = document.createElement("li");
-    stop.className = "stop";
-    stop.innerHTML = `
-      <span class="stay">${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}</span>
-      <span class="to">${place.name}</span>
-      <button type="button" class="link" data-remove="${place.id}">remove</button>`;
-    list.append(stop);
-  };
-
+  const addStop = (place) => list.append(stopItem(place, { done: done.has(place.id), seenButton: true }));
   if (route.startsAtFirstStop) {
     // Begins at a garden: stop, then each drive leads to the next stop.
     route.places.forEach((place, index) => {
-      if (index > 0) addLeg(route.legs[index - 1]);
+      if (index > 0) list.append(legItem(route.legs[index - 1]));
       addStop(place);
     });
   } else {
     route.legs.forEach((leg, index) => {
-      addLeg(leg);
+      list.append(legItem(leg));
       if (route.places[index]) addStop(route.places[index]);
     });
   }
 
+  const remaining = route.places.filter((place) => !done.has(place.id));
   const hours = (route.totalMinutes / 60).toFixed(1);
   summary.textContent =
-    `${route.places.length} stops · ${route.totalKm.toFixed(1)} km · ${Math.round(route.travelMinutes)} min driving · ${hours} hours all up`;
-  el("navigate").hidden = false;
+    `${route.places.length} stops${done.size ? ` (${done.size} done)` : ""} · ${route.totalKm.toFixed(1)} km · ` +
+    `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up` +
+    (route.method === "exact" ? "" : " · order approximate above 15 stops");
+  el("navigate").hidden = !remaining.length;
+  el("navigate").textContent = done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
   el("navigate").onclick = () => {
-    // The app plans; the phone navigates.
-    const stops = [...route.places];
+    // The app plans; the phone navigates. Only what is left, in route order.
+    const stops = [...remaining];
     const start = origin || stops.shift();
-    const finish = origin && el("return-home").checked ? origin : stops.pop() || start;
+    const finish = origin && returnHome ? origin : stops.pop() || start;
     openInMaps(start, stops.slice(0, MAX_WAYPOINTS), finish);
   };
 }
 
-/** The one line under the tabs that says what is being filtered out. */
-function updateFilterSummary() {
+/** The filters in words, for the strip under the tabs. */
+function filterWords() {
   const parts = [];
+  if (el("area").value) parts.push(el("area").value);
   if (el("festival").value !== "Both") parts.push(el("festival").value);
   if (el("entry-type").value !== "All") parts.push(el("entry-type").selectedOptions[0].textContent);
   if (el("anchor").value) parts.push(el("anchor").selectedOptions[0].textContent.toLowerCase());
   const km = Number(el("max-km").value);
-  if (km > 0 && (state.mode === "nearest" || state.mode === "via")) {
-    parts.push(state.mode === "via" ? `detour under ${km} km` : `within ${km} km`);
-  }
+  if (km > 0) parts.push(`within ${km} km`);
   if (el("min-interest").value) parts.push(`rated ${el("min-interest").value}+`);
   if (el("must-visit-only").checked) parts.push("must visit");
   for (const box of document.querySelectorAll("[data-amenity]")) {
     if (box.checked) parts.push(box.closest("label").textContent.trim().toLowerCase());
   }
-  if (el("hide-visited").checked) parts.push(state.mode === "map" ? "seen greyed" : "hiding seen");
-  if (state.mode === "nearest" && el("rank").value === "blend") {
-    parts.push(`ratings ${el("interest-weight").value}%`);
-  }
+  if (!el("hide-visited").checked) parts.push("showing seen");
+  if (el("rank").value === "blend") parts.push(`ratings ${el("interest-weight").value}%`);
+  return parts;
+}
 
-  const changed =
-    Object.entries(FILTER_DEFAULTS).filter(([id, value]) => el(id).value !== value).length +
-    Object.entries(FILTER_CHECK_DEFAULTS).filter(([id, value]) => el(id).checked !== value).length +
-    [...document.querySelectorAll("[data-amenity]")].filter((box) => box.checked).length;
-  el("filters-count").textContent = String(changed);
-  el("filters-count").hidden = changed === 0;
-  el("filters-summary").textContent = parts.length ? parts.join(" · ") : "Showing everything";
+function updateSummary(pool) {
+  const locked = state.pre.locked.length;
+  el("plan-count").textContent = String(locked);
+  el("plan-count").hidden = locked === 0;
+  el("plan-count").title = `${locked} in your plan`;
+  const available = pool.filter((place) => !state.pre.isLocked(place.id)).length;
+  const words = filterWords();
+  el("preselect-summary").textContent =
+    `${locked} in plan · ${available} more available` + (words.length ? ` · ${words.join(" · ")}` : "");
 
   el("weight-field").hidden = el("rank").value !== "blend";
   el("interest-weight-value").textContent = `${el("interest-weight").value}%`;
+  el("max-km-value").textContent = km(el("max-km").value);
+  el("range-note").hidden = !(Number(el("max-km").value) > 0 && !originFrom(el("origin")));
+}
+
+function km(value) {
+  return Number(value) > 0 ? `within ${value} km` : "any";
 }
 
 function resetFilters() {
   for (const [id, value] of Object.entries(FILTER_DEFAULTS)) el(id).value = value;
   for (const [id, value] of Object.entries(FILTER_CHECK_DEFAULTS)) el(id).checked = value;
   document.querySelectorAll("[data-amenity]").forEach((box) => (box.checked = false));
-  updateRangeLabel();
-}
-
-function updateRangeLabel() {
-  const value = Number(el("max-km").value);
-  el("max-km-label").textContent = state.mode === "via" ? "Detour under" : "Within";
-  // Distance only means something relative to a start: not on the map or My day.
-  el("range-field").hidden = state.mode === "map" || state.mode === "route";
-  el("max-km-value").textContent = value > 0 ? `${value} km` : "no limit";
 }
 
 function escapeHtml(value) {
@@ -541,68 +653,149 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => entities[c]);
 }
 
+/* ------------------------------------------------------------ preselect -- */
+
+function preselectRow(place, { lingering, outside }) {
+  const locked = state.pre.isLocked(place.id);
+  const visit = visitOf(place.id);
+  const notes = [];
+  if (visit.visited) notes.push('<span class="tag tag-anchor">seen</span>');
+  if (lingering) notes.push('<span class="ps-released" title="Released. Stays in view until you next change a filter.">released</span>');
+  const classes = ["ps-row"];
+  if (locked) classes.push("is-locked");
+  if (lingering || outside) classes.push("is-faint");
+  return `
+    <li class="${classes.join(" ")}">
+      <label>
+        <input type="checkbox" data-lock="${place.id}"${locked ? " checked" : ""} />
+        <span class="ps-nr ps-nr-${festivalClass(place)}">${escapeHtml(engine.gardenNr(place)) || "–"}</span>
+        <span class="ps-text">
+          <span class="ps-name">${escapeHtml(place.name)}</span>
+          <span class="ps-meta">${escapeHtml(place.area || place.region)} · ${escapeHtml(place.address)} ${notes.join(" ")}</span>
+        </span>
+      </label>
+    </li>`;
+}
+
+/** What the list shows right now: the pool, narrowed by any search. */
+function shownPlaces(pool) {
+  const search = el("ps-search").value;
+  return pool.filter((place) => matchesSearch(place, search)).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderPreselect(matches = criteriaMatches(), pool = poolPlaces(matches)) {
+  const search = el("ps-search").value;
+  const shown = shownPlaces(pool);
+  el("ps-list").innerHTML = shown
+    .map((place) => preselectRow(place, { lingering: state.pre.isLingering(place.id) && !matches.has(place.id), outside: false }))
+    .join("");
+
+  // A search should find a garden even when the filters have hidden it.
+  const inPool = new Set(pool.map((place) => place.id));
+  const outside = searchTerm(search)
+    ? sortedPlaces().filter((place) => place.lat != null && !inPool.has(place.id) && matchesSearch(place, search))
+    : [];
+  el("ps-outside").hidden = !outside.length;
+  el("ps-outside-list").innerHTML = outside.map((place) => preselectRow(place, { lingering: false, outside: true })).join("");
+
+  const lockedShown = shown.filter((place) => state.pre.isLocked(place.id)).length;
+  const searching = searchTerm(search) ? ` matching “${escapeHtml(search.trim())}”` : "";
+  el("ps-shown").innerHTML = `${shown.length} shown${searching} · ${lockedShown} ticked`;
+  el("ps-tab-count").textContent = `(${pool.length})`;
+  el("ps-choose-all").disabled = lockedShown === shown.length;
+  el("ps-release-all").disabled = lockedShown === 0;
+  el("ps-estimate").textContent = planEstimate();
+  el("max-km-value").textContent = km(el("max-km").value);
+}
+
+/** A guide, not a promise: the shortest loop through everything locked in. */
+function planEstimate() {
+  const chosen = lockedPlaces();
+  if (!chosen.length) return "Nothing locked in yet.";
+  const origin = originFrom(el("origin"));
+  const route = origin
+    ? memoRoute("day", chosen, origin, true, () => engine.buildRoute(chosen, origin, state.model, true))
+    : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
+  const gardens = `${chosen.length} garden${chosen.length === 1 ? "" : "s"} locked in`;
+  const exact = route.method === "exact";
+  const distance = `${exact ? "" : "roughly "}${Math.round(route.totalKm)} km`;
+  const shape = origin
+    ? `${exact ? "shortest loop" : "a loop"} from ${origin.name} and back`
+    : `${exact ? "shortest run" : "a run"} from first garden to last`;
+  const hours = (route.totalMinutes / 60).toFixed(1);
+  return `${gardens} · ${distance}, ${shape} · about ${hours} hours with visits`;
+}
+
+function openPreselect() {
+  const dialog = el("preselect-dialog");
+  if (!dialog.open) dialog.showModal();
+  render();
+}
+
+function setPane(pane) {
+  el("preselect-dialog").dataset.pane = pane;
+  document.querySelectorAll(".ps-tab").forEach((tab) => {
+    const on = tab.dataset.pane === pane;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", String(on));
+  });
+}
+
+/* ------------------------------------------------------------------ map -- */
+
 /** What a press-and-hold on a pin shows: enough to confirm it is the right one. */
 function describePlace(place) {
-  const planned = state.plan.includes(place.id);
+  const locked = state.pre.isLocked(place.id);
+  const what = locked
+    ? "in your plan · tap to release"
+    : place.greyed
+      ? "outside your preselection · tap to lock in"
+      : "available · tap to lock in";
   return `
     <div class="map-popup-nr">${escapeHtml(engine.gardenNr(place))}</div>
     <div class="map-popup-name">${escapeHtml(place.name)}</div>
     <div class="map-popup-address">${escapeHtml(place.address)}</div>
-    <div class="map-popup-meta">${escapeHtml(place.festivals.join(" + "))} · ${
-      place.locked
-        ? `seen${place.visitedOn ? ` ${escapeHtml(place.visitedOn)}` : ""}, hidden while "Hide ones I've seen" is on`
-        : planned
-          ? "in your plan, tap to remove"
-          : "tap to add"
-    }</div>`;
+    <div class="map-popup-meta">${escapeHtml(place.festivals.join(" + "))} · ${what}</div>`;
 }
 
-/** Set several gardens the same way at once, as an area selection does. */
-function setPlanned(ids, planned) {
-  const chosen = new Set(ids);
-  if (planned) {
-    // Keep the order things were added in; new ones go on the end.
-    state.plan = [...state.plan, ...ids.filter((id) => !state.plan.includes(id))];
-  } else {
-    state.plan = state.plan.filter((id) => !chosen.has(id));
-  }
-  writeStore(STORE_PLAN, state.plan);
-  render();
-}
-
-const routeMemo = { key: null, value: null };
+const routeMemo = new Map();
 
 /** Solve a route once per distinct question, however often the screen redraws. */
 function memoRoute(kind, chosen, origin, extra, solve) {
   const key = JSON.stringify([
     kind,
-    chosen.map((place) => place.id),
+    chosen.map((place) => place.id).sort(),
     origin ? [origin.id, origin.lat, origin.lon] : null,
     extra,
   ]);
-  if (routeMemo.key !== key) {
-    routeMemo.key = key;
-    routeMemo.value = solve();
+  if (!routeMemo.has(key)) {
+    routeMemo.set(key, solve());
+    // A handful is plenty: the estimate, My day and a run at most.
+    while (routeMemo.size > 6) routeMemo.delete(routeMemo.keys().next().value);
   }
-  return routeMemo.value;
+  return routeMemo.get(key);
 }
 
 function positionMap() {
-  // The map sits under the filter strip, so its summary stays readable.
+  // The map sits under the preselect strip, so its summary stays readable.
   const strip = document.querySelector(".filter-strip").getBoundingClientRect();
   document.documentElement.style.setProperty("--map-top", `${Math.round(strip.bottom)}px`);
 }
 
-function renderMap() {
+function renderMap(matches) {
   // Measure from the top of the page, or a scrolled list would push the map up.
   window.scrollTo(0, 0);
   positionMap();
   if (!state.map) {
     state.map = createMap({
       container: el("map-canvas"),
-      isPlanned: (id) => state.plan.includes(id),
+      isPlanned: (id) => state.pre.isLocked(id),
       onToggle: (id) => togglePlan(id),
-      onSetMany: (ids, planned) => setPlanned(ids, planned),
+      onSetMany: (ids, locked) => {
+        state.pre.setMany(ids, locked, criteriaMatches());
+        savePlan();
+        render();
+      },
       describe: describePlace,
       onViewChange: (view) => {
         state.mapView = view;
@@ -622,33 +815,26 @@ function renderMap() {
     }, 0);
   }
 
-  // Only what the filters let through is drawn, so only that can be selected.
-  // Seen gardens are the exception: with "Hide ones I've seen" on they stay on
-  // the map, greyed out and locked, so the map still shows where they are.
-  const filters = { ...currentFilters(), maxKm: null };
-  const hideSeen = el("hide-visited").checked;
-  const visible = engine
-    .eligible(state.bundle.places, { ...filters, includeVisited: true }, state.visits)
-    .map((place) => ({
-      ...place,
-      label: engine.mapLabel(place),
-      festivalClass: place.festivals.length > 1 ? "both" : (place.festivals[0] || "").toLowerCase(),
-      locked: hideSeen && Boolean(visitOf(place.id).visited),
-      visitedOn: visitOf(place.id).visitedOn || null,
-    }));
+  const drawn = mapStates(state.bundle.places, state.pre, matches, (id) => Boolean(visitOf(id).visited));
+  const visible = drawn.map(({ place, state: pinState }) => ({
+    ...place,
+    label: engine.mapLabel(place),
+    festivalClass: festivalClass(place),
+    greyed: pinState === "greyed",
+  }));
   state.map.setPlaces(visible, state.bundle.places);
-  const greyed = visible.filter((place) => place.locked).length;
+  const count = (wanted) => drawn.filter((entry) => entry.state === wanted).length;
   el("map-count").textContent =
-    `${state.plan.length} in plan · ${visible.length - greyed} shown` + (greyed ? ` · ${greyed} seen` : "");
+    `${count("locked")} in plan · ${count("available")} available · ${count("greyed")} greyed`;
 }
 
 function togglePlan(id) {
-  const index = state.plan.indexOf(id);
-  if (index >= 0) state.plan.splice(index, 1);
-  else state.plan.push(id);
-  writeStore(STORE_PLAN, state.plan);
+  state.pre.toggle(id, criteriaMatches());
+  savePlan();
   render();
 }
+
+/* ---------------------------------------------------------------- wiring -- */
 
 function wire() {
   document.querySelectorAll(".mode").forEach((button) => {
@@ -656,37 +842,67 @@ function wire() {
       document.querySelectorAll(".mode").forEach((b) => b.classList.remove("is-active"));
       button.classList.add("is-active");
       state.mode = button.dataset.mode;
-      el("destination-field").hidden = state.mode !== "via";
-      el("order-field").hidden = state.mode !== "via";
-      el("count-field").hidden = state.mode === "route";
-      updateRangeLabel();
+      showModeControls();
       saveView();
       render();
     });
   });
 
-  [
-    "origin", "destination", "order", "count", "festival", "entry-type", "anchor",
-    "hide-visited", "return-home", "rank", "min-interest", "must-visit-only",
-  ].forEach((id) => el(id).addEventListener("change", () => { saveView(); render(); }));
+  ["origin", "destination", "order", "count", "detour-cap", "return-home", "rank"].forEach((id) =>
+    el(id).addEventListener("change", () => { saveView(); render(); })
+  );
   el("interest-weight").addEventListener("input", () => { saveView(); render(); });
 
-  el("filters-button").addEventListener("click", () => {
-    updateRangeLabel();
-    el("filters-dialog").showModal();
-  });
-  el("filters-reset").addEventListener("click", () => {
-    resetFilters();
+  // A filter change ends lingering: released gardens now stay or go on their merits.
+  const criteriaChanged = () => {
+    state.pre.criteriaChanged();
     saveView();
     render();
+  };
+  [...CRITERIA_CONTROLS, ...CRITERIA_CHECKBOXES].forEach((id) => el(id).addEventListener("change", criteriaChanged));
+  document.querySelectorAll("[data-amenity]").forEach((box) => box.addEventListener("change", criteriaChanged));
+  // The slider reports while dragging; only the value it is let go at is a change.
+  el("max-km").addEventListener("input", () => { el("max-km-value").textContent = km(el("max-km").value); });
+  el("max-km").addEventListener("change", criteriaChanged);
+  el("filters-reset").addEventListener("click", () => {
+    resetFilters();
+    criteriaChanged();
   });
-  document
-    .querySelectorAll("[data-amenity]")
-    .forEach((box) => box.addEventListener("change", () => { saveView(); render(); }));
 
-  el("max-km").addEventListener("input", () => {
-    updateRangeLabel();
-    saveView();
+  el("preselect-button").addEventListener("click", () => {
+    // On a phone, open where the work is: the list if there is a plan, else filters.
+    if (window.matchMedia("(max-width: 759px)").matches) {
+      setPane(state.pre.locked.length ? "gardens" : "filters");
+    }
+    openPreselect();
+  });
+  el("preselect-done").addEventListener("click", () => el("preselect-dialog").close());
+  el("preselect-dialog").addEventListener("close", () => render());
+  document.querySelectorAll(".ps-tab").forEach((tab) => tab.addEventListener("click", () => setPane(tab.dataset.pane)));
+
+  // Searching narrows the list only, so nothing else needs redrawing.
+  el("ps-search").addEventListener("input", () => {
+    if (searchTerm(el("ps-search").value)) setPane("gardens");
+    renderPreselect();
+  });
+
+  el("preselect-dialog").addEventListener("change", (event) => {
+    const box = event.target.closest("[data-lock]");
+    if (!box) return;
+    if (box.checked) state.pre.lock([box.dataset.lock]);
+    else state.pre.release([box.dataset.lock], criteriaMatches());
+    savePlan();
+    render();
+  });
+  el("ps-choose-all").addEventListener("click", () => {
+    state.pre.lock(shownPlaces(poolPlaces()).map((place) => place.id));
+    savePlan();
+    render();
+  });
+  el("ps-release-all").addEventListener("click", () => {
+    const matches = criteriaMatches();
+    state.pre.release(shownPlaces(poolPlaces(matches)).map((place) => place.id), matches);
+    savePlan();
     render();
   });
 
@@ -703,12 +919,7 @@ function wire() {
     if (!target) return;
     if (target.dataset.add) togglePlan(target.dataset.add);
     else if (target.dataset.remove) togglePlan(target.dataset.remove);
-    else if (target.dataset.visited) {
-      const id = target.dataset.visited;
-      const now = visitOf(id).visited;
-      setVisit(id, { visited: !now, visitedOn: now ? null : new Date().toISOString().slice(0, 10) });
-      render();
-    }
+    else if (target.dataset.visited) markVisited(target.dataset.visited, !visitOf(target.dataset.visited).visited);
   });
 
   el("export").addEventListener("click", () => {
@@ -754,17 +965,13 @@ function wire() {
     if (state.mode === "map") positionMap();
   });
 
-  el("via-clear").addEventListener("click", () => {
-    state.plan = [];
-    writeStore(STORE_PLAN, state.plan);
+  const clearPlan = () => {
+    state.pre.release([...state.pre.locked], criteriaMatches());
+    savePlan();
     render();
-  });
-
-  el("clear-plan").addEventListener("click", () => {
-    state.plan = [];
-    writeStore(STORE_PLAN, state.plan);
-    render();
-  });
+  };
+  el("via-clear").addEventListener("click", clearPlan);
+  el("clear-plan").addEventListener("click", clearPlan);
 
   el("base-button").addEventListener("click", () => {
     fillPlaceSelect(el("base-place"));
@@ -824,10 +1031,11 @@ load()
   .then(() => {
     fillPlaceSelect(el("origin"), { includeBase: true });
     fillPlaceSelect(el("destination"), { includeBase: true });
+    fillAreaSelect();
     if (state.base) el("base-button").textContent = state.base.name;
     wire();
     restoreView();
-    updateRangeLabel();
+    setPane("gardens");
     render();
   })
   .catch((error) => {

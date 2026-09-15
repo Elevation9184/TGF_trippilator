@@ -163,7 +163,7 @@ export function declutter(pins, minGap) {
   const ordered = [...pins].sort(
     (a, b) =>
       Number(b.planned) - Number(a.planned) ||
-      Number(Boolean(a.locked)) - Number(Boolean(b.locked)) ||
+      Number(Boolean(a.greyed)) - Number(Boolean(b.greyed)) ||
       a.label.localeCompare(b.label, "en", { numeric: true })
   );
   const labelled = [];
