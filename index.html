@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260915-1245" />
+    <meta name="build" content="20260915-1304" />
   </head>
   <body>
     <header>
@@ -31,6 +31,7 @@
       <button id="preselect-button" type="button" class="filters-button" aria-haspopup="dialog">
         Preselect <span id="plan-count" class="filters-count" hidden></span>
       </button>
+      <button id="edit-button" type="button" class="filters-button" aria-haspopup="dialog">Garden Edit</button>
       <span id="preselect-summary" class="filters-summary"></span>
     </div>
 
@@ -288,6 +289,112 @@
           <p class="note ps-help">
             Tick to lock a garden into your plan. Locked-in gardens stay whatever the filters say.
             Release one and it stays in view until you next change a filter.
+          </p>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="edit-dialog" class="preselect editor" data-pane="gardens">
+      <div class="ps-head">
+        <h2 tabindex="-1" autofocus>Garden Edit</h2>
+        <div class="ps-tabs" role="tablist">
+          <button type="button" class="ps-tab" data-edit-pane="gardens" role="tab">Gardens <span id="ed-tab-shown"></span></button>
+          <button type="button" class="ps-tab" data-edit-pane="edit" role="tab">Edit <span id="ed-tab-picked"></span></button>
+        </div>
+        <button id="edit-done" type="button" class="primary">Done</button>
+      </div>
+      <div class="ps-search ed-search">
+        <label>
+          <span class="visually-hidden">Search gardens</span>
+          <input id="ed-search" type="search" autocomplete="off" enterkeyhint="search"
+            placeholder="Search name, street, area or number (C9)" />
+        </label>
+        <label>
+          <span class="visually-hidden">Which gardens to list</span>
+          <select id="ed-scope">
+            <option value="pool">My preselection</option>
+            <option value="plan">My plan</option>
+            <option value="all">All gardens</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="ps-body">
+        <section class="ps-gardens ed-list" aria-label="Gardens">
+          <div class="ps-list-head">
+            <span id="ed-shown" class="note"></span>
+            <button id="ed-pick-all" type="button">Select all shown</button>
+            <button id="ed-pick-none" type="button">Clear selection</button>
+          </div>
+          <ul id="ed-list" class="ps-list"></ul>
+          <button id="ed-go-edit" type="button" class="primary ed-go-edit" hidden>Edit selected</button>
+        </section>
+
+        <section class="ed-form" aria-label="Edit">
+          <div id="ed-target" class="ed-target"></div>
+          <fieldset id="ed-fields" class="ed-fields" disabled>
+            <label>
+              Rating
+              <select id="ed-interest" data-field="interest">
+                <option value="">Not rated</option>
+                <option value="1">1 low</option>
+                <option>2</option><option>3</option><option>4</option>
+                <option value="5">5 neutral</option>
+                <option>6</option><option>7</option><option>8</option><option>9</option>
+                <option value="10">10 top</option>
+              </select>
+            </label>
+            <label>
+              Must visit
+              <select id="ed-mustVisit" data-field="mustVisit">
+                <option value="">Not set</option>
+                <option>Yes</option>
+                <option>Maybe</option>
+                <option>No</option>
+              </select>
+            </label>
+            <div class="row">
+              <label>
+                Seen
+                <select id="ed-visited" data-field="visited">
+                  <option>No</option>
+                  <option>Yes</option>
+                </select>
+              </label>
+              <label>
+                On
+                <input id="ed-visitedOn" data-field="visitedOn" type="date" />
+              </label>
+            </div>
+            <p id="ed-visited-note" class="note" hidden></p>
+            <!-- The clear buttons sit outside the labels, which would otherwise adopt them. -->
+            <div class="ed-field">
+              <div class="ed-field-head">
+                <label for="ed-minutes">Visit minutes</label>
+                <button id="ed-clear-minutes" type="button" class="link ed-clear">use listing</button>
+              </div>
+              <input id="ed-minutes" data-field="minutes" type="number" inputmode="numeric" min="5" max="480" step="5" />
+            </div>
+            <div class="ed-field">
+              <div class="ed-field-head">
+                <label for="ed-note">Notes</label>
+                <button id="ed-clear-note" type="button" class="link ed-clear">clear</button>
+              </div>
+              <textarea id="ed-note" data-field="note" rows="4"></textarea>
+            </div>
+            <p id="ed-error" class="ed-error" role="alert" hidden></p>
+          </fieldset>
+
+          <div class="ed-undo">
+            <button id="ed-undo" type="button" disabled>Undo</button>
+            <span id="ed-last" class="note"></span>
+          </div>
+
+          <div id="ed-listing" class="ed-listing" hidden></div>
+          <p class="note ed-help">
+            Changes save as you make them, to every highlighted garden. Where they differ a field
+            shows <em>mixed</em>, and stays untouched unless you change it. Listing details come
+            from the festivals and cannot be edited.
           </p>
         </section>
       </div>

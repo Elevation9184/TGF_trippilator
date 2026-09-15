@@ -24,12 +24,14 @@ export const COLUMNS = [
   "Must Visit",
   "Visited",
   "Visit Date",
+  // Personal: how long you expect to stay, overriding the listing's estimate.
+  "Visit Minutes (blank = listing estimate)",
   "Notes",
 ];
 
 // Only these come back in. Name and region are context for the human editing
 // the file; changing them there must not silently rewrite the dataset.
-const EDITABLE = new Set(["Interest", "Must Visit", "Visited", "Visit Date", "Notes"]);
+const EDITABLE = new Set(["Interest", "Must Visit", "Visited", "Visit Date", "Visit Minutes", "Notes"]);
 
 /** "Interest (1-10, 10 = best)" and "Interest" are the same column. */
 function headingKey(name) {
@@ -86,6 +88,18 @@ function normaliseDate(value) {
   return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
 }
 
+// A stay shorter than five minutes is a typo; longer than eight hours is a day.
+export const MIN_VISIT_MINUTES = 5;
+export const MAX_VISIT_MINUTES = 480;
+
+/** Whole minutes within range, or null. */
+export function parseMinutes(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+$/.test(text)) return null;
+  const number = Number(text);
+  return number >= MIN_VISIT_MINUTES && number <= MAX_VISIT_MINUTES ? number : null;
+}
+
 export function toCsv(places, visits) {
   const lines = [COLUMNS.map(quote).join(",")];
   for (const place of [...places].sort((a, b) => a.name.localeCompare(b.name))) {
@@ -101,6 +115,8 @@ export function toCsv(places, visits) {
         visit.mustVisit ?? place.mustVisit ?? "",
         visit.visited ? "Yes" : "",
         visit.visitedOn ?? "",
+        // Only your own, so importing the sheet never records a listing estimate as a decision.
+        visit.minutes ?? "",
         visit.note ?? "",
       ]
         .map(quote)
@@ -215,6 +231,13 @@ export function fromCsv(text, knownIds) {
           continue;
         }
         entry.mustVisit = setting;
+      } else if (column === "Visit Minutes") {
+        const minutes = parseMinutes(value);
+        if (minutes === null) {
+          rejected.push(`${id}: visit minutes ${value}`);
+          continue;
+        }
+        entry.minutes = minutes;
       } else if (column === "Notes") entry.note = value;
     }
     if (Object.keys(entry).length) notes[id] = entry;

@@ -15,6 +15,7 @@ import * as engine from "./engine.js";
 import { toCsv, fromCsv } from "./notes.js";
 import { createMap } from "./map.js";
 import { Preselection, doneToday, mapStates, matchesSearch, searchTerm } from "./preselect.js";
+import * as edit from "./editor.js";
 
 const STORE_BASE = "tgo.base.v1";
 const STORE_VISITS = "tgo.visits.v1";
@@ -69,6 +70,11 @@ const state = {
   map: null,
   mapView: null,
   order: "detour",
+  // Garden Edit: which gardens are highlighted, and what can be undone.
+  // Neither survives a reload; both are about the editing in hand.
+  picked: new Set(),
+  history: new edit.History(),
+  lastEdit: "",
 };
 
 /* Storage can throw in private windows, so never let it break the page. */
@@ -273,6 +279,12 @@ function setDone(ids) {
  */
 function markVisited(id, visited) {
   setVisit(id, { visited, visitedOn: visited ? today() : null });
+  planAfterSeen(id, visited);
+  savePlan();
+  render();
+}
+
+function planAfterSeen(id, visited) {
   const done = doneIds();
   if (visited) {
     if (state.pre.isLocked(id) && !done.includes(id)) setDone([...done, id]);
@@ -281,8 +293,12 @@ function markVisited(id, visited) {
     setDone(done.filter((other) => other !== id));
     state.pre.lock([id]);
   }
-  savePlan();
-  render();
+}
+
+/** A place as routing should see it: with your own visit minutes, if you set them. */
+function personal(place) {
+  const minutes = visitOf(place.id).minutes;
+  return minutes == null ? place : { ...place, minutes };
 }
 
 function amenityBadges(place) {
@@ -397,6 +413,7 @@ function render() {
   const pool = poolPlaces(matches);
   updateSummary(pool);
   if (el("preselect-dialog").open) renderPreselect(matches, pool);
+  if (el("edit-dialog").open) renderEditor(pool);
 
   const onMap = state.mode === "map";
   document.body.classList.toggle("map-mode", onMap);
@@ -477,6 +494,11 @@ function lockedPlaces() {
   return state.pre.locked.map((id) => state.byId.get(id)).filter((place) => place && place.lat != null);
 }
 
+/** Ready to route: personal visit minutes applied. */
+function routable(places) {
+  return places.map(personal);
+}
+
 function renderViaHandoff(origin) {
   const panel = el("via-handoff");
   if (state.mode !== "via") {
@@ -489,7 +511,7 @@ function renderViaHandoff(origin) {
   panel.hidden = false;
   list.innerHTML = "";
 
-  const chosen = lockedPlaces();
+  const chosen = routable(lockedPlaces());
   if (!chosen.length || !destination) {
     summary.textContent = "Tick + Plan on anything below to build a run.";
     el("via-navigate").disabled = true;
@@ -556,8 +578,10 @@ function renderPlan(origin) {
   list.innerHTML = "";
   const done = new Set(doneIds());
   // Gardens done today stay in the route, so it keeps its shape as the day goes.
-  const chosen = [...lockedPlaces(), ...[...done].map((id) => state.byId.get(id))].filter(
-    (place, index, all) => place && all.findIndex((other) => other.id === place.id) === index
+  const chosen = routable(
+    [...lockedPlaces(), ...[...done].map((id) => state.byId.get(id))].filter(
+      (place, index, all) => place && all.findIndex((other) => other.id === place.id) === index
+    )
   );
   el("plan-no-start").hidden = Boolean(origin) || !chosen.length;
   el("return-home").closest("label").hidden = !origin;
@@ -710,7 +734,7 @@ function renderPreselect(matches = criteriaMatches(), pool = poolPlaces(matches)
 
 /** A guide, not a promise: the shortest loop through everything locked in. */
 function planEstimate() {
-  const chosen = lockedPlaces();
+  const chosen = routable(lockedPlaces());
   if (!chosen.length) return "Nothing locked in yet.";
   const origin = originFrom(el("origin"));
   const route = origin
@@ -734,11 +758,312 @@ function openPreselect() {
 
 function setPane(pane) {
   el("preselect-dialog").dataset.pane = pane;
-  document.querySelectorAll(".ps-tab").forEach((tab) => {
+  document.querySelectorAll("#preselect-dialog .ps-tab").forEach((tab) => {
     const on = tab.dataset.pane === pane;
     tab.classList.toggle("is-active", on);
     tab.setAttribute("aria-selected", String(on));
   });
+}
+
+/* ---------------------------------------------------------- garden edit -- */
+
+const SIZE_WORDS = { "Daily anchor": "Major (half-day)", Support: "Worth a stop" };
+const MIXED = "__mixed";
+
+function pickedPlaces() {
+  return [...state.picked].map((id) => state.byId.get(id)).filter(Boolean);
+}
+
+/** The gardens listed for editing: a scope, narrowed by any search. */
+function editListPlaces(pool = poolPlaces()) {
+  const scope = el("ed-scope").value;
+  const base = scope === "all" ? state.bundle.places : scope === "plan" ? lockedPlaces() : pool;
+  const search = el("ed-search").value;
+  return base.filter((place) => matchesSearch(place, search)).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** A glance at what has been set, so the list shows what editing did. */
+function personalSummary(place) {
+  const visit = visitOf(place.id);
+  const parts = [];
+  const rating = edit.effective("interest", place, visit);
+  if (rating != null) parts.push(`rated ${rating}`);
+  const must = edit.effective("mustVisit", place, visit);
+  if (must === "Yes") parts.push("must visit");
+  else if (must === "Maybe") parts.push("maybe");
+  if (visit.visited) parts.push(visit.visitedOn ? `seen ${shortDate(visit.visitedOn)}` : "seen");
+  if (visit.minutes != null) parts.push(`${visit.minutes} min`);
+  if (visit.note) parts.push("note");
+  if (state.pre.isLocked(place.id)) parts.push("in plan");
+  return parts;
+}
+
+function shortDate(iso) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+}
+
+function editRow(place) {
+  const picked = state.picked.has(place.id);
+  const summary = personalSummary(place);
+  return `
+    <li class="ps-row${picked ? " is-picked" : ""}">
+      <label>
+        <input type="checkbox" data-pick="${place.id}"${picked ? " checked" : ""} />
+        <span class="ps-nr ps-nr-${festivalClass(place)}">${escapeHtml(engine.gardenNr(place)) || "–"}</span>
+        <span class="ps-text">
+          <span class="ps-name">${escapeHtml(place.name)}</span>
+          <span class="ps-meta">${escapeHtml(place.area || place.region)}${
+            summary.length ? ` · <span class="ed-summary">${escapeHtml(summary.join(" · "))}</span>` : ""
+          }</span>
+        </span>
+      </label>
+    </li>`;
+}
+
+/** A select showing the shared value, or "mixed" where the gardens differ. */
+function setChoice(select, info, toValue = (value) => (value == null ? "" : String(value))) {
+  select.querySelector(`option[value="${MIXED}"]`)?.remove();
+  if (info.mixed) {
+    const option = new Option("mixed", MIXED);
+    option.disabled = true;
+    select.prepend(option);
+    select.value = MIXED;
+  } else {
+    select.value = toValue(info.value);
+  }
+}
+
+function setText(input, info, fallback = "") {
+  // Never overwrite what someone is in the middle of typing.
+  if (document.activeElement === input) return;
+  input.value = info.mixed || info.value == null ? "" : String(info.value);
+  input.placeholder = info.mixed ? "mixed · type to set them all" : fallback;
+}
+
+function renderEditor(pool = poolPlaces()) {
+  const shown = editListPlaces(pool);
+  const picked = pickedPlaces();
+
+  el("ed-list").innerHTML = shown.length
+    ? shown.map(editRow).join("")
+    : '<li class="note ed-empty">No gardens here. Try another list or search.</li>';
+  const pickedShown = shown.filter((place) => state.picked.has(place.id)).length;
+  const hidden = picked.length - pickedShown;
+  el("ed-shown").textContent =
+    `${shown.length} shown · ${picked.length} highlighted` + (hidden > 0 ? ` (${hidden} not shown)` : "");
+  el("ed-tab-shown").textContent = `(${shown.length})`;
+  el("ed-tab-picked").textContent = picked.length ? `(${picked.length})` : "";
+  el("ed-pick-all").disabled = !shown.length || pickedShown === shown.length;
+  el("ed-pick-none").disabled = !picked.length;
+  el("ed-go-edit").hidden = !picked.length;
+  el("ed-go-edit").textContent = `Edit ${picked.length} highlighted`;
+
+  // Who is being edited, always in view, so a change never lands by surprise.
+  if (!picked.length) {
+    el("ed-target").innerHTML = '<p class="note">Highlight one or more gardens to edit them.</p>';
+  } else if (picked.length === 1) {
+    const [place] = picked;
+    el("ed-target").innerHTML = `
+      <div class="ed-one"><span class="ps-nr ps-nr-${festivalClass(place)}">${escapeHtml(engine.gardenNr(place))}</span>
+      <strong>${escapeHtml(place.name)}</strong></div>`;
+  } else {
+    el("ed-target").innerHTML = `
+      <p class="ed-count"><strong>${picked.length} gardens</strong> highlighted</p>
+      <div class="ed-chips">${picked
+        .map(
+          (place) => `<button type="button" class="ed-chip" data-unpick="${place.id}"
+            title="Stop editing ${escapeHtml(place.name)}">${escapeHtml(place.name)} ×</button>`
+        )
+        .join("")}</div>`;
+  }
+
+  el("ed-fields").disabled = !picked.length;
+  const info = (field) => edit.common(field, picked, visitOf);
+  setChoice(el("ed-interest"), info("interest"));
+  setChoice(el("ed-mustVisit"), info("mustVisit"));
+  const seen = info("visited");
+  setChoice(el("ed-visited"), seen, (value) => (value ? "Yes" : "No"));
+
+  const allSeen = !seen.mixed && seen.value === true;
+  const dates = info("visitedOn");
+  el("ed-visitedOn").disabled = !allSeen;
+  setText(el("ed-visitedOn"), allSeen ? dates : { mixed: false, value: null });
+  const visitedNote = el("ed-visited-note");
+  visitedNote.hidden = true;
+  if (picked.length && seen.mixed) {
+    visitedNote.hidden = false;
+    visitedNote.textContent = "Some are seen and some not. A date can be set once they all are.";
+  } else if (allSeen && dates.mixed) {
+    visitedNote.hidden = false;
+    visitedNote.textContent = "Seen on different days. Pick a date to set them all.";
+  }
+
+  const listed = new Set(picked.map((place) => place.minutes ?? null));
+  const listingHint =
+    listed.size === 1 && [...listed][0] != null
+      ? `listing says ${[...listed][0]}`
+      : `${engine.DEFAULT_VISIT_MINUTES} assumed`;
+  setText(el("ed-minutes"), info("minutes"), listingHint);
+  el("ed-clear-minutes").disabled = !picked.some((place) => visitOf(place.id).minutes != null);
+  setText(el("ed-note"), info("note"));
+  el("ed-clear-note").disabled = !picked.some((place) => visitOf(place.id).note);
+
+  el("ed-undo").disabled = !state.history.size;
+  el("ed-undo").textContent = state.history.size ? `Undo: ${state.history.last.label}` : "Undo";
+  el("ed-last").textContent = state.lastEdit;
+
+  renderListing(picked);
+}
+
+/** Read-only facts from the festival listing, for one garden. */
+function renderListing(picked) {
+  const box = el("ed-listing");
+  box.hidden = picked.length !== 1;
+  if (picked.length !== 1) return;
+  const [place] = picked;
+  const amenities = Object.entries(place.amenities || {})
+    .filter(([, value]) => value === "Yes")
+    .map(([name]) => name);
+  const rows = [
+    ["Address", place.address],
+    ["Area", place.area || place.region],
+    ["Festival", place.festivals.join(" + ")],
+    ["Type", place.type],
+    ["Size", SIZE_WORDS[place.anchor] || place.anchor || "not given"],
+    ["Listing visit", place.minutes != null ? `${place.minutes} min` : "not given"],
+    ["Facilities", amenities.length ? amenities.join(", ") : "not recorded"],
+  ];
+  box.innerHTML = `
+    <p class="ps-subhead">From the festival listing</p>
+    <dl>${rows.map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>`;
+}
+
+function describeEdit(field, value) {
+  const name = edit.FIELD_LABELS[field];
+  if (field === "visited") return value ? "seen" : "not seen";
+  if (value == null) return `${name} cleared`;
+  if (field === "note") return "notes";
+  if (field === "minutes") return `${value} min`;
+  if (field === "visitedOn") return `seen on ${shortDate(value)}`;
+  return `${name} ${value}`;
+}
+
+function snapshot(ids) {
+  return {
+    visits: ids.map((id) => [id, state.visits.has(id) ? { ...state.visits.get(id) } : null]),
+    pre: state.pre.toJSON(),
+    done: state.done ? { ...state.done, ids: [...(state.done.ids || [])] } : null,
+  };
+}
+
+/** One field, to every highlighted garden it would change. Undoable. */
+function applyEdit(field, value) {
+  const picked = pickedPlaces();
+  const before = snapshot(picked.map((place) => place.id));
+  let changed = 0;
+  for (const place of picked) {
+    const patch = edit.patchFor(field, value, place, visitOf(place.id), today());
+    if (!patch) continue;
+    setVisit(place.id, patch);
+    if (field === "visited") planAfterSeen(place.id, value);
+    changed += 1;
+  }
+  el("ed-error").hidden = true;
+  if (changed) {
+    const label = `${describeEdit(field, value)}, ${changed} garden${changed === 1 ? "" : "s"}`;
+    state.history.push({ label, before });
+    state.lastEdit = `Saved: ${label}.`;
+    savePlan();
+  } else {
+    state.lastEdit = "Nothing to change: already set that way.";
+  }
+  render();
+}
+
+function undoEdit() {
+  const entry = state.history.pop();
+  if (!entry) return;
+  for (const [id, visit] of entry.before.visits) {
+    if (visit) state.visits.set(id, visit);
+    else state.visits.delete(id);
+  }
+  writeStore(STORE_VISITS, Object.fromEntries(state.visits));
+  state.pre = new Preselection(entry.before.pre);
+  state.done = entry.before.done;
+  writeStore(STORE_DONE, state.done);
+  state.lastEdit = `Undone: ${entry.label}.`;
+  savePlan();
+  render();
+}
+
+function setEditPane(pane) {
+  el("edit-dialog").dataset.pane = pane;
+  document.querySelectorAll("#edit-dialog .ps-tab").forEach((tab) => {
+    const on = tab.dataset.editPane === pane;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", String(on));
+  });
+}
+
+function wireEditor() {
+  el("edit-button").addEventListener("click", () => {
+    setEditPane("gardens");
+    state.lastEdit = "";
+    el("ed-error").hidden = true;
+    if (!el("edit-dialog").open) el("edit-dialog").showModal();
+    render();
+  });
+  el("edit-done").addEventListener("click", () => el("edit-dialog").close());
+  el("edit-dialog").addEventListener("close", () => render());
+  document
+    .querySelectorAll("#edit-dialog .ps-tab")
+    .forEach((tab) => tab.addEventListener("click", () => setEditPane(tab.dataset.editPane)));
+  el("ed-go-edit").addEventListener("click", () => setEditPane("edit"));
+
+  el("ed-search").addEventListener("input", () => renderEditor());
+  el("ed-scope").addEventListener("change", () => renderEditor());
+
+  el("ed-list").addEventListener("change", (event) => {
+    const box = event.target.closest("[data-pick]");
+    if (!box) return;
+    if (box.checked) state.picked.add(box.dataset.pick);
+    else state.picked.delete(box.dataset.pick);
+    el("ed-error").hidden = true;
+    renderEditor();
+  });
+  el("ed-pick-all").addEventListener("click", () => {
+    for (const place of editListPlaces()) state.picked.add(place.id);
+    renderEditor();
+  });
+  el("ed-pick-none").addEventListener("click", () => {
+    state.picked.clear();
+    renderEditor();
+  });
+  el("ed-target").addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-unpick]");
+    if (!chip) return;
+    state.picked.delete(chip.dataset.unpick);
+    renderEditor();
+  });
+
+  // Choices save as they are made; typed text saves when you leave the field.
+  el("ed-fields").addEventListener("change", (event) => {
+    const control = event.target.closest("[data-field]");
+    if (!control || control.value === MIXED) return;
+    const field = control.dataset.field;
+    const parsed = edit.parse(field, control.value);
+    if (!parsed.ok) {
+      el("ed-error").textContent = parsed.message;
+      el("ed-error").hidden = false;
+      return;
+    }
+    applyEdit(field, parsed.value);
+  });
+  // The one way to empty a field for gardens that differ: a blank box means "leave alone".
+  el("ed-clear-minutes").addEventListener("click", () => applyEdit("minutes", null));
+  el("ed-clear-note").addEventListener("click", () => applyEdit("note", null));
+  el("ed-undo").addEventListener("click", undoEdit);
 }
 
 /* ------------------------------------------------------------------ map -- */
@@ -764,7 +1089,8 @@ const routeMemo = new Map();
 function memoRoute(kind, chosen, origin, extra, solve) {
   const key = JSON.stringify([
     kind,
-    chosen.map((place) => place.id).sort(),
+    // Minutes too: how long a visit takes changes the day, if not the order.
+    chosen.map((place) => `${place.id}:${place.minutes ?? ""}`).sort(),
     origin ? [origin.id, origin.lat, origin.lon] : null,
     extra,
   ]);
@@ -878,7 +1204,11 @@ function wire() {
   });
   el("preselect-done").addEventListener("click", () => el("preselect-dialog").close());
   el("preselect-dialog").addEventListener("close", () => render());
-  document.querySelectorAll(".ps-tab").forEach((tab) => tab.addEventListener("click", () => setPane(tab.dataset.pane)));
+  document
+    .querySelectorAll("#preselect-dialog .ps-tab")
+    .forEach((tab) => tab.addEventListener("click", () => setPane(tab.dataset.pane)));
+
+  wireEditor();
 
   // Searching narrows the list only, so nothing else needs redrawing.
   el("ps-search").addEventListener("input", () => {

@@ -597,3 +597,93 @@ body.map-mode .controls { display: none !important; }
 .ps-released { font-style: italic; }
 .ps-subhead { margin: 0.9rem 0 0.3rem; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 .ps-help { margin-top: 0.9rem; }
+
+/* ------------------------------------------------------- garden edit ---- */
+.ed-search { display: flex; gap: 0.5rem; align-items: center; }
+.ed-search label:first-child { flex: 1; }
+.ed-search select { width: auto; }
+.ed-form {
+  overflow: auto;
+  min-height: 0;
+  padding: 0.7rem 0.9rem 1rem;
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+}
+.ed-target p { margin: 0; }
+.ed-one { display: flex; gap: 0.5rem; align-items: baseline; font-size: 1rem; }
+.ed-count { margin: 0 0 0.35rem; }
+.ed-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; max-height: 6.5rem; overflow: auto; }
+.ed-chip {
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.ed-fields {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.7rem;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+.ed-fields:disabled { opacity: 0.5; }
+.ed-fields > label,
+.ed-fields .row > label,
+.ed-field-head label { display: grid; gap: 0.2rem; font-size: 0.76rem; color: var(--muted); }
+.ed-field { display: grid; gap: 0.2rem; }
+.ed-field-head { display: flex; justify-content: space-between; align-items: baseline; }
+.ed-clear { font-size: 0.74rem; }
+.ed-clear:disabled { color: var(--muted); text-decoration: none; cursor: default; opacity: 0.6; }
+.ed-fields input[type="date"],
+.ed-fields textarea {
+  font: inherit;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  width: 100%;
+}
+.ed-fields textarea { resize: vertical; min-height: 5rem; }
+.ed-fields input:disabled { opacity: 0.55; }
+.ed-error { margin: 0; font-size: 0.8rem; color: #b3261e; }
+@media (prefers-color-scheme: dark) {
+  .ed-error { color: #f2b8b5; }
+}
+.ed-undo { display: grid; gap: 0.3rem; justify-items: start; }
+.ed-undo button {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--green);
+  cursor: pointer;
+  text-align: left;
+}
+.ed-undo button:disabled { border-color: var(--line); color: var(--muted); cursor: default; }
+.ed-listing { border-top: 1px solid var(--line); padding-top: 0.2rem; font-size: 0.8rem; }
+.ed-listing .ps-subhead { margin-top: 0.4rem; }
+.ed-listing dl { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.7rem; margin: 0; }
+.ed-listing dt { color: var(--muted); }
+.ed-listing dd { margin: 0; }
+.ed-summary { color: var(--green); }
+.ed-empty { padding: 0.6rem 0.4rem; }
+.ps-row.is-picked label { background: color-mix(in srgb, var(--fringe) 14%, transparent); }
+.ed-go-edit { position: sticky; bottom: 0.4rem; width: 100%; margin-top: 0.6rem; }
+@media (max-width: 759px) {
+  .editor[data-pane="gardens"] .ed-form,
+  .editor[data-pane="edit"] .ed-list { display: none; }
+}
+@media (min-width: 760px) {
+  .editor .ps-body { grid-template-columns: 1fr minmax(19rem, 25rem); }
+  .editor .ed-list { border-right: 1px solid var(--line); }
+  .ed-go-edit { display: none !important; }
+}
