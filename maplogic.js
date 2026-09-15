@@ -137,6 +137,15 @@ export function restoreView(saved, width, height) {
   return { scale, tx: width / 2 - saved.cx * scale, ty: height / 2 - saved.cy * scale };
 }
 
+// Pixels per kilometre from which secondary roads are drawn. Fitting the whole
+// region gives about 5 on a phone and 8 to 10 on a laptop, where the town streets
+// among them would only be clutter; one pinch in, they are a guide.
+export const MINOR_ROADS_FROM_SCALE = 12;
+
+export function showMinorRoads(scale) {
+  return scale >= MINOR_ROADS_FROM_SCALE;
+}
+
 /**
  * Keep the same ground in the middle when the map's box changes size, as when a
  * phone rotates. Returns the view and the size to remember.

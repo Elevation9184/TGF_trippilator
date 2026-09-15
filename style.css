@@ -379,6 +379,18 @@ body.map-mode .controls { display: none !important; }
 .map-coast,
 .map-road { fill: none; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .map-coast { stroke: #6fa3c7; stroke-width: 1.5; }
+/* Secondary roads: thin and quiet, a guide rather than a street map. */
+.map-minor {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke: #a69c88;
+  stroke-width: 1.5;
+}
+@media (prefers-color-scheme: dark) {
+  .map-minor { stroke: #7a7366; }
+}
 .map-road { stroke: #d9a441; stroke-width: 2.2; }
 .map-road-label {
   font-size: 10px;

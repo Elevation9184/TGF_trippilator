@@ -53,6 +53,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   const liveLayer = node("g");
   svg.append(geoLayer, liveLayer);
   let roadLabels = [];
+  let minorLayer = null;
   const popup = document.createElement("div");
   popup.className = "map-popup";
   popup.hidden = true;
@@ -109,6 +110,8 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     ensureView();
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     geoLayer.setAttribute("transform", `matrix(${view.scale} 0 0 ${view.scale} ${view.tx} ${view.ty})`);
+    // Secondary roads are clutter across the whole region and a guide close in.
+    if (minorLayer) minorLayer.style.display = geo.showMinorRoads(view.scale) ? "" : "none";
     liveLayer.replaceChildren();
     const svgAppend = (...children) => liveLayer.append(...children);
 
@@ -390,7 +393,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   }
 
   return {
-    /** Coastline and highways, baked from OpenStreetMap. Optional. */
+    /** Coastline, secondary roads and highways, baked from OpenStreetMap. Optional. */
     setGeography(geography) {
       geoLayer.replaceChildren();
       roadLabels = [];
@@ -399,6 +402,12 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       for (const flat of geography.coast || []) {
         geoLayer.append(node("path", { class: "map-coast", d: geo.pathData(geo.decodeLine(flat, scale)) }));
       }
+      // Under the highways, so a highway is never hidden by a lesser road.
+      minorLayer = node("g", { class: "map-minor-layer" });
+      for (const flat of geography.minor || []) {
+        minorLayer.append(node("path", { class: "map-minor", d: geo.pathData(geo.decodeLine(flat, scale)) }));
+      }
+      geoLayer.append(minorLayer);
       for (const road of geography.roads || []) {
         const lines = road.lines.map((flat) => geo.decodeLine(flat, scale));
         for (const line of lines) {
