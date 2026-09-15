@@ -20,15 +20,24 @@ export const OSRM_TABLE = "https://router.project-osrm.org/table/v1/driving/";
 export const BASE_ID = "@base";
 export const HERE_ID = "@here";
 
-// Prefer, but do not insist on, matches in and around Taranaki.
-const VIEWBOX = "173.6,-38.8,174.7,-39.8";
+// Where a base can be: Taranaki with a margin, from north of Waitara to past
+// Hāwera and out to the coast. A base anywhere else is a wrong match or a typo.
+export const FESTIVAL_AREA = { south: -39.95, west: 173.55, north: -38.75, east: 174.95 };
+
+export function inFestivalArea(lat, lon) {
+  const a = FESTIVAL_AREA;
+  return lat >= a.south && lat <= a.north && lon >= a.west && lon <= a.east;
+}
 
 export function addressSearchUrl(address) {
+  const a = FESTIVAL_AREA;
   const url = new URL(NOMINATIM);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("q", address.trim());
   url.searchParams.set("countrycodes", "nz");
-  url.searchParams.set("viewbox", VIEWBOX);
+  // Only inside the area, so "Devon Street" cannot come back from another town.
+  url.searchParams.set("viewbox", `${a.west},${a.north},${a.east},${a.south}`);
+  url.searchParams.set("bounded", "1");
   url.searchParams.set("limit", "5");
   return url.toString();
 }
@@ -42,7 +51,7 @@ export function addressCandidates(results) {
       lat: Number(result.lat),
       lon: Number(result.lon),
     }))
-    .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+    .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon) && inFestivalArea(c.lat, c.lon));
 }
 
 /** "38, Example Street, Suburb, New Plymouth, ..." becomes "38 Example Street". */

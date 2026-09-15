@@ -1592,14 +1592,23 @@ async function lookUpAddress() {
   try {
     const candidates = position.addressCandidates(await fetchJson(position.addressSearchUrl(address)));
     if (!candidates.length) {
-      setPendingBase(null, "No match. Try the street and town only, or use your location when you are there.");
+      setPendingBase(
+        null,
+        "No match in the festival area. Try the street and town only, or use your location when you are there."
+      );
       return;
     }
     el("base-results").innerHTML = candidates
-      .map((c, i) => `<li><button type="button" data-candidate="${i}">${escapeHtml(c.label)}</button></li>`)
+      .map((c, i) => `<li><button type="button" data-candidate="${i}"${i === 0 ? ' class="is-on"' : ""}>${escapeHtml(c.label)}</button></li>`)
       .join("");
     el("base-results")._candidates = candidates;
-    setPendingBase(null, candidates.length === 1 ? "One match. Tap it to choose it." : "Tap the right one.");
+    // The best match is chosen already: Save works now, and B on the map is the check.
+    setPendingBase(
+      { ...candidates[0], source: "address" },
+      candidates.length === 1
+        ? "Found it. Press Save, then check B on the map."
+        : "Best match selected. Tap another if it's wrong, then Save."
+    );
   } catch {
     setPendingBase(null, "The address service could not be reached. Try again, or use your location when you are there.");
   }
@@ -1684,6 +1693,12 @@ function wireWhere() {
   el("base-button").addEventListener("click", openBaseDialog);
   el("plan-set-start").addEventListener("click", openBaseDialog);
   el("base-lookup").addEventListener("click", lookUpAddress);
+  // Changing the address after a match would otherwise save the old match.
+  el("base-address").addEventListener("input", () => {
+    if (pendingBase?.source !== "address") return;
+    el("base-results").innerHTML = "";
+    setPendingBase(null, "Press Find to look up the new address.");
+  });
   // Enter in the address box looks it up rather than closing the dialog.
   el("base-address").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -1702,11 +1717,16 @@ function wireWhere() {
     if (!navigator.geolocation) return setPendingBase(null, "This browser has no location support.");
     setPendingBase(null, "Finding you…");
     navigator.geolocation.getCurrentPosition(
-      (fix) =>
+      (fix) => {
+        const { latitude: lat, longitude: lon, accuracy } = fix.coords;
+        if (!position.inFestivalArea(lat, lon)) {
+          return setPendingBase(null, "You're outside the festival area. Use this when you're at the base in Taranaki.");
+        }
         setPendingBase(
-          { name: "My base", lat: fix.coords.latitude, lon: fix.coords.longitude, source: "gps" },
-          `Found, to within about ${Math.round(fix.coords.accuracy)} m. Press Save.`
-        ),
+          { name: "My base", lat, lon, source: "gps" },
+          `Found, to within about ${Math.round(accuracy)} m. Press Save.`
+        );
+      },
       () => setPendingBase(null, "Location refused or unavailable."),
       { enableHighAccuracy: true, timeout: 15000 }
     );
@@ -1714,9 +1734,14 @@ function wireWhere() {
   for (const id of ["base-lat", "base-lon"]) {
     el(id).addEventListener("input", () => {
       const point = position.parseCoordinates(el("base-lat").value, el("base-lon").value);
+      const inside = point && position.inFestivalArea(point.lat, point.lon);
       setPendingBase(
-        point ? { name: "My base", ...point, source: "coordinates" } : null,
-        point ? "Press Save." : "Latitude and longitude in New Zealand, such as -39.06 and 174.07."
+        inside ? { name: "My base", ...point, source: "coordinates" } : null,
+        inside
+          ? "Press Save."
+          : point
+            ? "Those coordinates are outside the festival area."
+            : "Latitude and longitude, such as -39.06 and 174.07."
       );
     });
   }
