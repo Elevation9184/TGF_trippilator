@@ -137,6 +137,20 @@ export function restoreView(saved, width, height) {
   return { scale, tx: width / 2 - saved.cx * scale, ty: height / 2 - saved.cy * scale };
 }
 
+/**
+ * Keep the same ground in the middle when the map's box changes size, as when a
+ * phone rotates. Returns the view and the size to remember.
+ *
+ * A hidden map measures 0 by 0. That is not a size to remember: treating it as
+ * one made the top-left corner the "middle", so every return to the Map tab
+ * shifted the map by half a screen.
+ */
+export function resizeView(view, from, to) {
+  if (!to || !to.width || !to.height) return { view, size: from };
+  if (!view || !from || !from.width || !from.height) return { view, size: to };
+  return { view: restoreView(describeView(view, from.width, from.height), to.width, to.height), size: to };
+}
+
 /** The pin a tap lands on: the nearest one within reach, or none. */
 export function hitTest(pins, sx, sy, radius) {
   let best = null;

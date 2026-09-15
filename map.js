@@ -61,6 +61,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   let places = [];
   let extent = [];
   let view = null;
+  let pendingView = null; // a saved view waiting for the map to have a size
   let selecting = false;
   let pins = [];
   let area = null; // { rect, selection }
@@ -74,8 +75,13 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   const size = () => ({ width: container.clientWidth, height: container.clientHeight });
 
   function ensureView() {
-    if (view) return;
     const { width, height } = size();
+    if (pendingView && width && height) {
+      view = geo.restoreView(pendingView, width, height);
+      pendingView = null;
+      svg._lastSize = { width, height };
+    }
+    if (view) return;
     view = geo.fitView(extent, width, height);
   }
 
@@ -368,13 +374,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
 
   new ResizeObserver(() => {
     if (!view) return schedule();
-    // Keep the same ground in the middle when the screen changes shape.
-    const saved = svg._lastSize
-      ? geo.describeView(view, svg._lastSize.width, svg._lastSize.height)
-      : null;
-    const { width, height } = size();
-    if (saved && width && height) view = geo.restoreView(saved, width, height);
-    svg._lastSize = { width, height };
+    // Keep the same ground in the middle when the screen changes shape, and
+    // ignore being hidden, which is not a change of shape.
+    ({ view, size: svg._lastSize } = geo.resizeView(view, svg._lastSize, size()));
     schedule();
   }).observe(container);
 
@@ -416,6 +418,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     },
     refresh: schedule,
     fit() {
+      pendingView = null;
       const { width, height } = size();
       view = geo.fitView(extent, width, height);
       commitView();
@@ -423,8 +426,13 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     },
     restore(saved) {
       const { width, height } = size();
-      if (saved && width && height) view = geo.restoreView(saved, width, height);
-      svg._lastSize = { width, height };
+      if (saved && width && height) {
+        view = geo.restoreView(saved, width, height);
+        svg._lastSize = { width, height };
+      } else if (saved) {
+        // Not laid out yet: hold on to it rather than lose it to a fit.
+        pendingView = saved;
+      }
       schedule();
     },
     setSelecting,
