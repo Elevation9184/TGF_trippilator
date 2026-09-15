@@ -19,6 +19,10 @@ import * as edit from "./editor.js";
 import * as opening from "./opening.js";
 import * as position from "./position.js";
 import * as handoff from "./handoff.js";
+import * as testmode from "./testmode.js";
+
+// ?tm=y walks a day through from a desk. Read once, never stored: see testmode.js.
+const TEST_MODE = testmode.isOn(location.search);
 
 const STORE_BASE = "tgo.base.v1";
 // Where you were at the last GPS fix. Kept so a reopened app still knows.
@@ -126,6 +130,16 @@ async function load() {
   state.pre.retain(new Set(state.byId.keys()));
   state.done = readStore(STORE_DONE, null);
   state.here = readStore(STORE_HERE, null);
+  // A pretend fix must not outlive test mode, or a real day starts at a garden
+  // nobody has been to.
+  if (state.here?.pretend && !TEST_MODE) {
+    state.here = null;
+    try {
+      localStorage.removeItem(STORE_HERE);
+    } catch {
+      /* Nothing stored to remove. */
+    }
+  }
   // Road costs measured for the base or here earlier, back into the model.
   if (state.base?.travel) state.model.setPersonal(position.BASE_ID, state.base.travel);
   if (state.here?.travel) state.model.setPersonal(position.HERE_ID, state.here.travel);
@@ -331,6 +345,8 @@ function markVisited(id, visited) {
   setVisit(id, { visited, visitedOn: visited ? today() : null });
   planAfterSeen(id, visited);
   savePlan();
+  // A test run moves on with the day: seeing a garden puts you at it.
+  if (TEST_MODE) moveToPretendPlace();
   render();
 }
 
@@ -389,9 +405,18 @@ async function saveFile(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(link.href), 60000);
 }
 
-/** Send one batch of a run to Google Maps, which starts from the phone. */
+/**
+ * Send one batch of a run to Google Maps, which starts from the phone — or, in
+ * test mode, from wherever the run is pretending to be, shown as a route rather
+ * than navigated, since the phone is not there.
+ */
 function openInMaps(batch) {
-  window.open(handoff.directionsUrl(batch), "_blank", "noopener");
+  const from = TEST_MODE ? pretendPlace() : null;
+  window.open(
+    handoff.directionsUrl(from ? { ...batch, origin: from, navigate: false } : batch),
+    "_blank",
+    "noopener"
+  );
 }
 
 /** A detour of a few metres is measurement noise, not a cost worth showing. */
@@ -470,12 +495,18 @@ function render() {
   const pool = poolPlaces(matches);
   updateSummary(pool);
   updateWhere();
+  updateTestBanner();
   // First, before any early return: the build stamp is how an old copy is spotted,
-  // and a phone with no start point yet needs it as much as any.
+  // and a phone with no start point yet needs it as much as any. On its own line,
+  // because a stamp broken across two lines is no use read out over the phone.
   const build = document.querySelector('meta[name="build"]')?.content || "dev";
-  el("provenance").textContent =
-    `${state.bundle.places.length} destinations · road costs baked ` +
-    `${(state.bundle.generatedAt || "").slice(0, 10)} · build ${build}`;
+  const stamp = document.createElement("span");
+  stamp.className = "build";
+  stamp.textContent = `build ${build}`;
+  el("provenance").replaceChildren(
+    `${state.bundle.places.length} destinations · road costs baked ${(state.bundle.generatedAt || "").slice(0, 10)}`,
+    stamp
+  );
   if (el("preselect-dialog").open) renderPreselect(matches, pool);
   if (el("edit-dialog").open) renderEditor(pool);
 
@@ -1503,8 +1534,43 @@ async function measureHere() {
   }
 }
 
+/* ------------------------------------------------------------ test mode -- */
+
+/** Where a test run is standing: the last garden seen today, else the base. */
+function pretendPlace() {
+  return testmode.pretendPlace(doneIds(), state.byId, baseOrigin());
+}
+
+/**
+ * Put "here" at the pretend place, as a GPS fix would. Measured against every
+ * garden like any other fix, so the numbers under test are the real ones.
+ */
+function moveToPretendPlace() {
+  const at = pretendPlace();
+  if (!at) return false;
+  state.here = { lat: at.lat, lon: at.lon, accuracy: 0, at: new Date().toISOString(), pretend: at.name };
+  writeStore(STORE_HERE, state.here);
+  state.model.setPersonal(position.HERE_ID, {});
+  travelChanged();
+  measureHere();
+  return true;
+}
+
+function updateTestBanner() {
+  if (!TEST_MODE) return;
+  el("test-banner").hidden = false;
+  el("test-banner").textContent = testmode.bannerText(pretendPlace());
+}
+
 /** One GPS fix. Not tracking: taken when asked, or when the app is opened again. */
 function refreshHere({ quiet = false } = {}) {
+  if (TEST_MODE) {
+    // Never the real GPS: that is the whole point of testing from a desk.
+    const moved = moveToPretendPlace();
+    if (!moved && !quiet) el("status").textContent = "Test mode: set your base first, and Here will be there.";
+    render();
+    return Promise.resolve(moved);
+  }
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       if (!quiet) el("status").textContent = "This browser has no location support.";
@@ -1540,6 +1606,10 @@ function refreshHere({ quiet = false } = {}) {
 
 /** On opening the app again, a stale fix is refreshed if location is already allowed. */
 async function refreshHereIfAllowed() {
+  if (TEST_MODE) {
+    if (state.here && position.isStale(state.here) && moveToPretendPlace()) render();
+    return;
+  }
   if (!state.here || !position.isStale(state.here)) return;
   try {
     const permission = await navigator.permissions?.query({ name: "geolocation" });
@@ -1663,6 +1733,8 @@ function saveBase() {
   writeStore(STORE_BASE, state.base);
   state.model.setPersonal(position.BASE_ID, {});
   travelChanged();
+  // A test run starts at the base, as a real day does.
+  if (TEST_MODE) moveToPretendPlace();
   el("base-dialog").close();
   fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
   fillPlaceSelect(el("destination"), { includeBase: true });

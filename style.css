@@ -241,7 +241,18 @@ menu button {
   color: var(--green);
   font-weight: 700;
 }
+/* Loud on purpose: a test run must never be mistaken for the real thing. */
+.test-banner {
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  background: #7a2e2e;
+  color: #fff;
+}
+
 footer { display: grid; gap: 0.5rem; justify-items: center; }
+/* Its own line, never broken in the middle: it gets read out when something is wrong. */
+#provenance .build { display: block; white-space: nowrap; }
 .footer-actions { justify-content: center; }
 .footer-actions button,
 .import {

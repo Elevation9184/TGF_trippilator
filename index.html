@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260915-2302" />
+    <meta name="build" content="20260916-1115" />
   </head>
   <body>
     <header>
@@ -33,6 +33,9 @@
       <button class="mode" data-mode="map" role="tab">Map</button>
       <button class="mode" data-mode="route" role="tab">My day</button>
     </nav>
+
+    <!-- Only with ?tm=y on the address: a day walked through from a desk. -->
+    <p id="test-banner" class="test-banner" role="status" hidden></p>
 
     <!-- One line on every tab: what is in play, and the way in to change it. -->
     <div class="filter-strip">

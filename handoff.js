@@ -39,10 +39,16 @@ export function nextBatch(stops, finish = null, from = 0, max = MAX_WAYPOINTS) {
   };
 }
 
-/** A Google Maps directions link from wherever the phone is. */
-export function directionsUrl({ destination, waypoints = [], navigate = true }) {
+/**
+ * A Google Maps directions link from wherever the phone is.
+ *
+ * `origin` is only for test mode, where the phone is deliberately somewhere
+ * else: a real day never sets it, for the reason at the top of this file.
+ */
+export function directionsUrl({ destination, waypoints = [], navigate = true, origin = null }) {
   const url = new URL("https://www.google.com/maps/dir/");
   url.searchParams.set("api", "1");
+  if (origin) url.searchParams.set("origin", point(origin));
   url.searchParams.set("destination", point(destination));
   if (waypoints.length) url.searchParams.set("waypoints", waypoints.map(point).join("|"));
   url.searchParams.set("travelmode", "driving");

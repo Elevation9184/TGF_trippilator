@@ -9,7 +9,7 @@
  * Bump CACHE when publishing a new bundle. Old caches are removed on activate.
  */
 
-const CACHE = "tgo-20260915-2302";
+const CACHE = "tgo-20260916-1115";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,6 +24,7 @@ const ASSETS = [
   "./opening.js",
   "./position.js",
   "./handoff.js",
+  "./testmode.js",
   "./icon.svg",
   "./icon-192.png",
   "./icon-512.png",
@@ -58,7 +59,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return;
   event.respondWith(
-    caches.match(request).then(
+    // Opening the app with ?tm=y is the same page: match it without the query.
+    caches.match(request, { ignoreSearch: request.mode === "navigate" }).then(
       (cached) =>
         cached ||
         fetch(request)
