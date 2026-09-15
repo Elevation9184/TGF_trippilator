@@ -18,6 +18,7 @@ import { Preselection, doneToday, mapStates, matchesSearch, searchTerm } from ".
 import * as edit from "./editor.js";
 import * as opening from "./opening.js";
 import * as position from "./position.js";
+import * as handoff from "./handoff.js";
 
 const STORE_BASE = "tgo.base.v1";
 // Where you were at the last GPS fix. Kept so a reopened app still knows.
@@ -83,6 +84,8 @@ const state = {
   picked: new Set(),
   history: new edit.History(),
   lastEdit: "",
+  // On the way: how much of a long run has gone to Google Maps already.
+  viaSent: { key: "", from: 0 },
 };
 
 /* Storage can throw in private windows, so never let it break the page. */
@@ -356,35 +359,39 @@ function amenityBadges(place) {
     .join(" ");
 }
 
-function download(name, text, type) {
+/**
+ * Save a file the way the device expects. On a phone that is the share sheet,
+ * so it can go straight to email, Drive or a message: a download in an installed
+ * app lands silently in a folder few people ever open. On a laptop, a download.
+ */
+async function saveFile(name, text, type) {
+  const touch = window.matchMedia?.("(pointer: coarse)").matches;
+  if (touch && navigator.canShare) {
+    const file = new File([text], name, { type });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: name });
+        return;
+      } catch (error) {
+        if (error.name === "AbortError") return; // closed the share sheet
+        // Otherwise fall through to a download.
+      }
+    }
+  }
   const blob = new Blob([text], { type: `${type};charset=utf-8` });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = name;
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(link.href);
+  link.remove();
+  // Not straight away: Android fetches the file after the click returns.
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
 }
 
-// Google's directions URL takes at most nine intermediate stops.
-const MAX_WAYPOINTS = 9;
-
-/**
- * Hand an ordered run to Google Maps: start, the chosen stops, destination.
- *
- * "My day" cannot do this job, because it routes from your base and optionally
- * loops home. A journey collected on the way has its own two endpoints, and
- * losing them turns a drive north into a round trip.
- */
-function openInMaps(start, stops, finish) {
-  const url = new URL("https://www.google.com/maps/dir/");
-  url.searchParams.set("api", "1");
-  // Without a start, Google Maps begins from the phone's live position.
-  if (start) url.searchParams.set("origin", `${start.lat},${start.lon}`);
-  url.searchParams.set("destination", `${finish.lat},${finish.lon}`);
-  if (stops.length) {
-    url.searchParams.set("waypoints", stops.map((p) => `${p.lat},${p.lon}`).join("|"));
-  }
-  window.open(url.toString(), "_blank", "noopener");
+/** Send one batch of a run to Google Maps, which starts from the phone. */
+function openInMaps(batch) {
+  window.open(handoff.directionsUrl(batch), "_blank", "noopener");
 }
 
 /** A detour of a few metres is measurement noise, not a cost worth showing. */
@@ -394,7 +401,8 @@ function formatDetour(km) {
 }
 
 function mapsLink(place) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
+  // Directions to have a look at, not navigation started from a list.
+  return handoff.directionsUrl({ destination: place, navigate: false });
 }
 
 function festivalClass(place) {
@@ -565,6 +573,8 @@ function renderViaHandoff(origin) {
   if (!chosen.length || !destination) {
     summary.textContent = "Tick + Plan on anything below to build a run.";
     el("via-navigate").disabled = true;
+    el("via-navigate").textContent = "Send this run to Google Maps";
+    el("via-handoff-note").hidden = true;
     return;
   }
 
@@ -592,8 +602,27 @@ function renderViaHandoff(origin) {
     `(${(route.totalKm - direct).toFixed(1)} km more than driving straight there) · ` +
     `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up`;
   el("via-navigate").disabled = false;
-  el("via-navigate").onclick = () =>
-    openInMaps(origin, route.places.slice(0, MAX_WAYPOINTS), destination);
+
+  // No Seen buttons here to shrink a long run, so batches are counted instead.
+  const key = [...route.places.map((place) => place.id), destination.id, destination.lat, destination.lon].join("|");
+  if (state.viaSent.key !== key) state.viaSent = { key, from: 0 };
+  let batch = handoff.nextBatch(route.places, destination, state.viaSent.from);
+  if (!batch) {
+    // All sent: the next press starts again from the top.
+    state.viaSent.from = 0;
+    batch = handoff.nextBatch(route.places, destination);
+  }
+  const long = batch.total > handoff.MAX_WAYPOINTS + 1;
+  el("via-navigate").textContent = long
+    ? `Send stops ${batch.first}–${batch.last} of ${batch.total} to Google Maps`
+    : "Send this run to Google Maps";
+  el("via-handoff-note").hidden = !long;
+  el("via-handoff-note").textContent = "Google Maps takes ten stops at a time. Press again at the last one for the rest.";
+  el("via-navigate").onclick = () => {
+    openInMaps(batch);
+    state.viaSent.from = batch.more ? batch.last : 0;
+    render();
+  };
 }
 
 function legItem(leg) {
@@ -648,6 +677,7 @@ function renderPlan(origin) {
   if (!chosen.length) {
     summary.textContent = "";
     el("navigate").hidden = true;
+    el("plan-handoff-note").hidden = true;
     return;
   }
 
@@ -680,16 +710,19 @@ function renderPlan(origin) {
     `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up` +
     (route.method === "exact" ? "" : " · order approximate above 15 stops") +
     (checkDay() ? ` · opening checked for ${opening.dayLabel(checkDay())}` : "");
-  el("navigate").hidden = !remaining.length;
-  el("navigate").textContent = done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
-  el("navigate").onclick = () => {
-    // The app plans; the phone navigates. Only what is left, in route order.
-    const stops = [...remaining];
-    // From here, let Google start from the live position rather than the last fix.
-    const start = fromHere ? null : origin || stops.shift();
-    const end = finish || stops.pop() || start;
-    openInMaps(start, stops.slice(0, MAX_WAYPOINTS), end);
-  };
+  // The app plans; the phone navigates. Only what is left, in route order, from
+  // wherever the phone is: after three gardens that is not the base. A day too
+  // long for one link goes ten at a time, and ticking stops off as Seen moves on.
+  const batch = handoff.nextBatch(remaining, finish);
+  el("navigate").hidden = !batch;
+  el("plan-handoff-note").hidden = !batch?.more;
+  if (!batch) return;
+  el("navigate").textContent = batch.more
+    ? `Open the next ${batch.last} stops in Google Maps`
+    : done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
+  el("plan-handoff-note").textContent =
+    "Google Maps takes ten stops at a time. Mark them Seen as you go, and this sends the rest.";
+  el("navigate").onclick = () => openInMaps(batch);
 }
 
 /** The filters in words, for the strip under the tabs. */
@@ -1332,7 +1365,7 @@ function wire() {
   el("export").addEventListener("click", () => {
     // A worksheet of every destination, not only the ones already touched, so
     // it can be filled in at a desk in a spreadsheet.
-    download("garden-notes.csv", toCsv(state.bundle.places, state.visits), "text/csv");
+    saveFile("garden-notes.csv", toCsv(state.bundle.places, state.visits), "text/csv");
   });
 
   el("import").addEventListener("change", async (event) => {
@@ -1781,8 +1814,7 @@ function wireWhere() {
     }
   });
   el("head-base").addEventListener("click", () => {
-    // No start given: Google Maps starts from the phone's live position.
-    if (state.base) openInMaps(null, [], baseOrigin());
+    if (state.base) openInMaps(handoff.nextBatch([], baseOrigin()));
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refreshHereIfAllowed();
@@ -1802,17 +1834,45 @@ if ("serviceWorker" in navigator) {
     // A new version takes over as soon as it has installed. Reload once when it
     // does, so the screen shows the new code rather than waiting for next time.
     // Not on a first visit, when there was no old version to replace.
+    //
+    // Not mid-edit, either. The takeover lands seconds after opening with signal,
+    // which is when someone is typing a note, and notes save on leaving the box.
+    // So it waits until no dialog is open and nothing is being typed into.
     const hadController = Boolean(navigator.serviceWorker.controller);
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!hadController || reloaded) return;
-      reloaded = true;
+    let reloadPending = false;
+    const busy = () =>
+      Boolean(
+        document.querySelector("dialog[open]") ||
+          document.activeElement?.matches("textarea, input:not([type=checkbox]):not([type=range]):not([type=file])")
+      );
+    const reloadWhenIdle = () => {
+      if (!reloadPending || busy()) return;
+      reloadPending = false;
       location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController) return;
+      reloadPending = true;
+      reloadWhenIdle();
     });
+    // Dialogs closing, and focus leaving a box, are the moments it may go ahead.
+    document.addEventListener("close", reloadWhenIdle, true);
+    document.addEventListener("focusout", () => setTimeout(reloadWhenIdle, 0));
+
+    let registration = null;
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {
-        /* Offline support is a bonus, not a requirement for the page to work. */
-      });
+      navigator.serviceWorker
+        .register("sw.js")
+        .then((found) => (registration = found))
+        .catch(() => {
+          /* Offline support is a bonus, not a requirement for the page to work. */
+        });
+    });
+    // Chrome looks for a new version only when the page loads, and Android keeps
+    // an installed app alive in the background for days. Look on every return.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") registration?.update().catch(() => {});
+      else reloadWhenIdle();
     });
   }
 }
@@ -1830,6 +1890,9 @@ load()
     // A base saved while offline, or before measuring existed, is measured now.
     if (state.base && !state.base.travel && navigator.onLine) measureBase();
     refreshHereIfAllowed();
+    // Ratings, visits and the plan exist only in this browser. Ask it not to
+    // clear them when the phone runs short of space. No prompt; Chrome decides.
+    navigator.storage?.persist?.().catch(() => {});
   })
   .catch((error) => {
     el("status").textContent = `${error.message}. Serve this directory over http rather than opening the file directly.`;

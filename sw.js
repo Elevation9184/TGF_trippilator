@@ -9,7 +9,7 @@
  * Bump CACHE when publishing a new bundle. Old caches are removed on activate.
  */
 
-const CACHE = "tgo-20260915-1922";
+const CACHE = "tgo-20260915-2250";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,7 +23,11 @@ const ASSETS = [
   "./editor.js",
   "./opening.js",
   "./position.js",
+  "./handoff.js",
   "./icon.svg",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
   "./manifest.webmanifest",
   "./data/bundle.json",
 ];
@@ -38,9 +42,13 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  // Only our own old copies. Every GitHub Pages project of one account shares
+  // an origin, and so a cache list: anything else in it belongs to another site.
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))
+      Promise.all(
+        keys.filter((key) => key.startsWith("tgo-") && key !== CACHE).map((key) => caches.delete(key))
+      )
     )
   );
   self.clients.claim();
@@ -55,8 +63,11 @@ self.addEventListener("fetch", (event) => {
         cached ||
         fetch(request)
           .then((response) => {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
+            // A 404 kept offline would be served until the next publish.
+            if (response.ok) {
+              const copy = response.clone();
+              caches.open(CACHE).then((cache) => cache.put(request, copy));
+            }
             return response;
           })
           // Offline and never cached: fall back to the shell so the app still opens.
