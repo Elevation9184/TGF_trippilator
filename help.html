@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f5d3a">
+<meta name="robots" content="noindex, nofollow">
+<title>Trippilator Handbook</title>
+<link rel="icon" href="icon.svg">
+<!-- Webfonts are a nicety: with no signal the fallback stacks take over and
+     the page reads exactly the same. Nothing here needs the network. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f3f5f1;
+    --page: #ffffff;
+    --ink: #17241c;
+    --ink-soft: #4d6053;
+    --ink-faint: #7d8f83;
+    --rule: #d5ded6;
+    --green: #2f5d3a;
+    --green-lift: #e6efe7;
+    --centuria: #7a3e9d;
+    --fringe: #1f6f8b;
+    --amber: #a35c00;
+    --amber-lift: #fbf1e2;
+    --here: #216c41;
+    --here-lift: #e6f2ea;
+    --shade: #eceff0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper: #101614;
+      --page: #171f1b;
+      --ink: #e7ece8;
+      --ink-soft: #a8b8ae;
+      --ink-faint: #7f9187;
+      --rule: #2a352e;
+      --green: #85c396;
+      --green-lift: #1b2a20;
+      --centuria: #c79bea;
+      --fringe: #79c6de;
+      --amber: #e2a662;
+      --amber-lift: #292014;
+      --here: #83cba1;
+      --here-lift: #16251c;
+      --shade: #1c2421;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #101614;
+    --page: #171f1b;
+    --ink: #e7ece8;
+    --ink-soft: #a8b8ae;
+    --ink-faint: #7f9187;
+    --rule: #2a352e;
+    --green: #85c396;
+    --green-lift: #1b2a20;
+    --centuria: #c79bea;
+    --fringe: #79c6de;
+    --amber: #e2a662;
+    --amber-lift: #292014;
+    --here: #83cba1;
+    --here-lift: #16251c;
+    --shade: #1c2421;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding-block: 0 4rem;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 1.02rem;
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { width: 100%; max-width: 48rem; margin: 0 auto; padding-inline: 20px; }
+
+  h1, h2, h3, .eyebrow, .ui, .nav a, th, .num, .step-n {
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  }
+  h1 { font-size: clamp(2rem, 7vw, 2.9rem); line-height: 1.05; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+  h2 { font-size: clamp(1.3rem, 4vw, 1.6rem); line-height: 1.15; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+  h3 { font-size: 1.02rem; margin: 0; letter-spacing: -0.005em; }
+  p { margin: 0; }
+  a { color: var(--green); }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* Masthead ------------------------------------------------------------ */
+  header {
+    background: var(--green-lift);
+    border-bottom: 1px solid var(--rule);
+    padding-block: 2.6rem 2rem;
+  }
+  .masthead { display: grid; gap: 0.9rem; }
+  .lede { font-size: 1.12rem; color: var(--ink-soft); max-width: 34rem; }
+  .facts { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 0.3rem; }
+  .fact {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.74rem;
+    color: var(--ink-soft);
+  }
+  .fact b { color: var(--ink); font-weight: 500; }
+
+  /* Contents ------------------------------------------------------------ */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+  }
+  .nav-inner { display: flex; gap: 0.35rem; overflow-x: auto; padding-block: 0.55rem; scrollbar-width: thin; }
+  .nav a {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--ink-soft);
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--page);
+    white-space: nowrap;
+  }
+  .nav a:hover, .nav a:focus-visible { color: var(--green); border-color: var(--green); }
+
+  /* Sections ------------------------------------------------------------ */
+  main { display: grid; gap: 3rem; padding-top: 2.4rem; }
+  section { display: grid; gap: 1rem; }
+  .section-head { display: grid; gap: 0.3rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--ink); }
+  .prose { display: grid; gap: 0.85rem; max-width: 38rem; }
+
+  /* Inline UI names ----------------------------------------------------- */
+  .ui {
+    font-size: 0.86em;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    background: var(--shade);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: 0.05em 0.36em;
+    white-space: nowrap;
+  }
+  .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.82em;
+    font-weight: 500;
+    padding: 0.05em 0.3em;
+    border-radius: 4px;
+  }
+  .num.c { color: var(--centuria); background: color-mix(in srgb, var(--centuria) 12%, transparent); }
+  .num.f { color: var(--fringe); background: color-mix(in srgb, var(--fringe) 14%, transparent); }
+
+  /* The day, as a numbered sequence (it genuinely is one) --------------- */
+  .flow { display: grid; gap: 0.6rem; counter-reset: step; }
+  .step {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.2rem 0.9rem;
+    align-items: baseline;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .step:last-child { border-bottom: 0; }
+  .step-n {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.8rem;
+    color: var(--green);
+    font-weight: 500;
+  }
+  .step p { color: var(--ink-soft); grid-column: 2; font-size: 0.95rem; }
+
+  /* Tables -------------------------------------------------------------- */
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 22rem; }
+  th, td { text-align: left; padding: 0.5rem 0.9rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+    font-weight: 600;
+    border-bottom-color: var(--ink-faint);
+  }
+  td:first-child { font-weight: 600; white-space: nowrap; padding-right: 1.2rem; }
+  td.wrap-ok { white-space: normal; }
+
+  /* Notes --------------------------------------------------------------- */
+  .note { display: grid; gap: 0.35rem; padding: 0.85rem 1rem; background: var(--page); border: 1px solid var(--rule); }
+  .note .eyebrow { color: var(--amber); }
+  .note.warn { background: var(--amber-lift); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+  .note.good { background: var(--here-lift); border-color: color-mix(in srgb, var(--here) 32%, transparent); }
+  .note.good .eyebrow { color: var(--here); }
+  .note p { font-size: 0.93rem; }
+
+  /* Row states, shown the way the app shows them ------------------------ */
+  .rows { display: grid; gap: 0.5rem; max-width: 30rem; }
+  .row-demo {
+    border: 2px solid var(--rule);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    background: var(--page);
+    display: grid;
+    gap: 0.15rem;
+    font-size: 0.9rem;
+  }
+  .row-demo.heading { border-color: var(--amber); background: var(--amber-lift); }
+  .row-demo.here { border-color: var(--here); background: var(--here-lift); }
+  .row-demo b { font-family: Archivo, sans-serif; font-weight: 600; }
+  .row-demo .state { font-family: "IBM Plex Mono", monospace; font-size: 0.74rem; }
+  .row-demo.heading .state { color: var(--amber); }
+  .row-demo.here .state { color: var(--here); }
+  .row-demo.plain .state { color: var(--ink-faint); }
+
+  ul, ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.4rem; }
+  li { padding-left: 0.2rem; }
+  li::marker { color: var(--ink-faint); }
+
+  .pair { display: grid; gap: 1.2rem; }
+  @media (min-width: 46rem) { .pair { grid-template-columns: 1fr 1fr; } }
+
+  footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--rule); color: var(--ink-faint); font-size: 0.85rem; display: grid; gap: 0.5rem; }
+
+  .backbar { padding-block: 0.7rem; }
+  .back { font-family: Archivo, sans-serif; font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+  .back:hover, .back:focus-visible { text-decoration: underline; }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  html { scroll-behavior: smooth; }
+  :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<div class="wrap backbar"><a class="back" href="./">&#8592; Back to the Trippilator</a></div>
+
+<header>
+  <div class="wrap masthead">
+    <span class="eyebrow">Field guide · Taranaki 2026</span>
+    <h1>Trippilator</h1>
+    <p class="lede">
+      A planner for the Centuria Taranaki Garden Festival and the Taranaki Fringe Garden Festival
+      that lives on your phone, works with no signal, and hands the driving to Google Maps.
+    </p>
+    <div class="facts">
+      <span class="fact"><b>81</b> gardens</span>
+      <span class="fact"><b>30 Oct – 8 Nov 2026</b></span>
+      <span class="fact"><b>Offline</b> after first open</span>
+      <span class="fact">Your notes stay <b>on your phone</b></span>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="#install">Install</a>
+    <a href="#day">How a day runs</a>
+    <a href="#base">B and Here</a>
+    <a href="#nearest">Nearest</a>
+    <a href="#ontheway">On the way</a>
+    <a href="#map">Map</a>
+    <a href="#myday">My day</a>
+    <a href="#preselect">Preselect</a>
+    <a href="#edit">Garden Edit</a>
+    <a href="#backup">Backing up</a>
+    <a href="#trouble">If something looks wrong</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="install">
+    <div class="section-head">
+      <span class="eyebrow">Start here</span>
+      <h2>Putting it on your phone</h2>
+    </div>
+    <div class="prose">
+      <ol>
+        <li><b>Open the link in Chrome.</b> A link tapped inside WhatsApp, Messenger or email opens in that app's own
+          browser, which cannot install it and keeps your ratings somewhere separate. Use ⋮ → <span class="ui">Open in Chrome</span> first.</li>
+        <li>In Chrome, tap ⋮ → <span class="ui">Install app</span>. It gets a leaf icon on your home screen.</li>
+        <li><b>Open it once while you still have signal.</b> That's when it downloads the 81 gardens and the road
+          distances between them. After that it works in the back blocks with no coverage at all.</li>
+      </ol>
+      <p>
+        Everything you enter — your base, ratings, notes, the gardens you've seen — is kept in your own phone's browser.
+        None of it is uploaded, and nobody else's copy can see it.
+      </p>
+    </div>
+    <div class="note good">
+      <span class="eyebrow">Updates</span>
+      <p>New versions arrive by themselves next time you open the app with signal. The footer shows a build stamp such
+        as <b>build 20261028-1930</b> — quote it if you report a problem. This guide travels with the app, so it opens
+        with no signal too.</p>
+    </div>
+  </section>
+
+  <section id="day">
+    <div class="section-head">
+      <span class="eyebrow">The shape of it</span>
+      <h2>How a day runs</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Four tabs, in the order a day actually happens: <b>Nearest · On the way · Map · My day</b>. Under them sits
+        <span class="ui">Preselect</span>, which decides what all four are working with.
+      </p>
+    </div>
+    <div class="flow">
+      <div class="step">
+        <span class="step-n">01</span><h3>Set your base</h3>
+        <p>Where you're staying. Tap <span class="ui">B</span> in the green bar and find it by address. Distances and
+          routes start from here.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">02</span><h3>Choose the gardens you want</h3>
+        <p>In <span class="ui">Preselect</span>, or by tapping pins on the <b>Map</b>, or with <span class="ui">+ Plan</span>
+          on any result. A chosen garden is <b>locked in</b> — it stays in your plan whatever the filters say.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">03</span><h3>Let My day order them</h3>
+        <p>It works out the shortest loop through everything locked in, with driving times and how long the day takes
+          all up.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">04</span><h3>Send it to Google Maps</h3>
+        <p>One tap hands the stops over in order. The app plans; your phone navigates.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">05</span><h3>Tick gardens off as you go</h3>
+        <p>The app notices when you've been somewhere and marks it seen, or you can tap <span class="ui">Seen</span>
+          yourself. What's left reshuffles, and the next handoff sends only that.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="base">
+    <div class="section-head">
+      <span class="eyebrow">The two green bar buttons</span>
+      <h2>B and Here</h2>
+    </div>
+    <div class="pair">
+      <div class="prose">
+        <h3><span class="ui">B</span> — your base</h3>
+        <p>
+          Where the group is staying. Find it by typing the address, or press <span class="ui">I'm at the base now</span>
+          when you're there. The app then shows it on the map as a dark <b>B</b>, and you can tap the exact spot to
+          correct it — rural addresses land loosely.
+        </p>
+        <p>
+          When you save it, the app measures the real road distance from your base to all 81 gardens, once, and keeps
+          those numbers on the phone. After that, every plan is accurate offline.
+        </p>
+      </div>
+      <div class="prose">
+        <h3><span class="ui">Here</span> — where you are now</h3>
+        <p>
+          One location fix, taken when you press it. Not tracking. It shows its age everywhere it appears, so
+          <b>Here (4 min ago)</b> tells you how much to trust it.
+        </p>
+        <p>
+          Pressing it once also gives the app permission to follow your day — see
+          <a href="#myday">My day</a>.
+        </p>
+      </div>
+    </div>
+    <div class="note">
+      <span class="eyebrow">Privacy</span>
+      <p>Your base is never part of the published app and never leaves your phone. Finding the address and measuring
+        those distances asks OpenStreetMap's free services once, and the app says so before it does.</p>
+    </div>
+  </section>
+
+  <section id="nearest">
+    <div class="section-head">
+      <span class="eyebrow">Tab one</span>
+      <h2>Nearest</h2>
+    </div>
+    <div class="prose">
+      <p>
+        What's closest, in plain distance order. Use it to fill a gap in the afternoon or to see what's near the place
+        you're standing in.
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>Control</th><th>What it does</th></tr>
+        <tr><td>Starting from</td><td class="wrap-ok">Your base, <b>Here</b>, or any garden. Distances are measured from whatever you pick.</td></tr>
+        <tr><td>How many</td><td class="wrap-ok">5, 10, 15, 20 or all of them.</td></tr>
+        <tr><td>Rank Nearest by</td><td class="wrap-ok">In Preselect. <b>Distance only</b>, or <b>Distance and my ratings</b> with a slider for how much your ratings count.</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Each row shows road distance and driving time, which festival it belongs to, its facilities, and a
+        <span class="ui">rate</span> box from 1 to 10. Rate gardens as you browse — that's what the ratings ranking runs
+        on, and it takes a second per garden. <span class="ui">+ Plan</span> locks a garden into the day,
+        <span class="ui">Seen?</span> ticks it off, and <span class="ui">Map ↗</span> opens directions to it alone.
+      </p>
+    </div>
+  </section>
+
+  <section id="ontheway">
+    <div class="section-head">
+      <span class="eyebrow">Tab two</span>
+      <h2>On the way</h2>
+    </div>
+    <div class="prose">
+      <p>
+        For a journey you're already making: New Plymouth down to Hāwera, say. It shows what each garden would
+        <em>add</em> to that drive, rather than how far away it is.
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>Control</th><th>What it does</th></tr>
+        <tr><td>Starting from / Heading to</td><td class="wrap-ok">The two ends of the journey. Both are kept — the run never turns into a round trip by accident.</td></tr>
+        <tr><td>Detour up to</td><td class="wrap-ok">Hide anything that would add more than 2, 5, 10 or 20 km.</td></tr>
+        <tr><td>Order by</td><td class="wrap-ok"><b>Cheapest detour</b> to see the bargains first, or <b>Driving order</b> to see them in the order you'd pass them.</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        A row reading <b>+1.2 km</b> means the whole journey gets 1.2 km longer if you stop there. <b>free</b> means
+        it's practically on the way. Tick the ones you want with <span class="ui">+ Plan</span>, then
+        <span class="ui">Send this run to Google Maps</span>.
+      </p>
+    </div>
+  </section>
+
+  <section id="map">
+    <div class="section-head">
+      <span class="eyebrow">Tab three</span>
+      <h2>Map</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Every garden as a numbered pin, with the coastline, the state highways and the mountain drawn in. It's built
+        from the data already on your phone, so it needs no signal and downloads no tiles.
+      </p>
+      <p>
+        Pins carry each festival's own map number: <span class="num c">C24</span> for Centuria,
+        <span class="num f">F30</span> for Fringe. A garden in both festivals shows its Centuria number on the map and
+        both in the popup — so someone holding the Fringe brochure can still find it.
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>Gesture</th><th>Effect</th></tr>
+        <tr><td>Press and hold a pin</td><td class="wrap-ok">Popup with both numbers, the name and the address</td></tr>
+        <tr><td>Tap a pin</td><td class="wrap-ok">Add that garden to your plan, or take it out again</td></tr>
+        <tr><td>Tap empty map</td><td class="wrap-ok">Dismiss the popup, change nothing</td></tr>
+        <tr><td>Drag / pinch</td><td class="wrap-ok">Move the map / zoom about your fingers</td></tr>
+        <tr><td><span class="ui">Select area</span>, then drag</td><td class="wrap-ok">Set every garden inside the box the same way at once</td></tr>
+        <tr><td><span class="ui">Fit</span></td><td class="wrap-ok">Back to the whole region</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        An area selection is <b>set all</b>, not toggle each. The first garden the growing box catches decides the
+        direction: if it was in the plan, the box removes; otherwise it adds. Pins preview green or red before you lift
+        your finger.
+      </p>
+      <p>
+        Pin shading tells you where a garden stands: solid for locked into your plan, plain for available, grey for
+        outside your current filters. Tapping a grey one locks it in anyway — that's how you grab a garden the filters
+        are hiding.
+      </p>
+    </div>
+  </section>
+
+  <section id="myday">
+    <div class="section-head">
+      <span class="eyebrow">Tab four</span>
+      <h2>My day</h2>
+    </div>
+    <div class="prose">
+      <p>
+        The plan itself: your locked-in gardens put into the shortest driving order, with the legs between them, how
+        long each visit is assumed to take, and the total. Up to fifteen gardens it finds the genuinely shortest
+        order, not an approximation.
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>Control</th><th>What it does</th></tr>
+        <tr><td><span class="ui">Return to base</span></td><td class="wrap-ok">Finish the loop back at B</td></tr>
+        <tr><td><span class="ui">Tick off as I go</span></td><td class="wrap-ok">Let the app mark gardens seen by itself — see below</td></tr>
+        <tr><td><span class="ui">Re-plan from here</span></td><td class="wrap-ok">Takes a fix and reorders what's still to go, from where you actually are</td></tr>
+        <tr><td><span class="ui">Head to base</span></td><td class="wrap-ok">Straight directions home, from your live position</td></tr>
+        <tr><td><span class="ui">Open in Google Maps</span></td><td class="wrap-ok">Hands over the stops still to go, in order</td></tr>
+        <tr><td>Tap a garden's name</td><td class="wrap-ok">Its address, numbers and opening days — for the navigator confirming the next gate</td></tr>
+      </table>
+    </div>
+
+    <h3>It follows the day</h3>
+    <div class="prose">
+      <p>
+        Once you've pressed <span class="ui">Here</span> at least once, My day keeps up with where you are. A garden
+        you're approaching gets an amber border; once you're there it turns green and counts the minutes.
+      </p>
+    </div>
+    <div class="rows">
+      <div class="row-demo heading">
+        <b><span class="num c">C6</span> Bee Valley Flower Farm</b>
+        <span class="state">Heading to · 1.2 km</span>
+      </div>
+      <div class="row-demo here">
+        <b><span class="num f">F28</span> A Moment In Thyme</b>
+        <span class="state">You're here · 11 min · ticks off when you leave</span>
+      </div>
+      <div class="row-demo plain">
+        <b><span class="num c">C31</span> Beechwoods</b>
+        <span class="state">45 min (assumed) · Seen · remove</span>
+      </div>
+    </div>
+    <div class="prose">
+      <p>
+        Stay ten minutes and drive away, and the garden is ticked off by itself, with a message naming it and an
+        <span class="ui">Undo</span>. Drive past without stopping and nothing happens. Where two gardens are next door
+        to each other — <span class="num c">C15</span> Tītoki and <span class="num c">C16</span> Te Rongohua are
+        16A and 16B Kinross Drive — it asks which one you're at rather than guessing.
+      </p>
+      <p>
+        If you undo an automatic tick, the app stops ticking things off until your plan changes. It assumes it got
+        something wrong and stays out of the way.
+      </p>
+    </div>
+    <div class="note warn">
+      <span class="eyebrow">Worth knowing</span>
+      <p>
+        While Google Maps is in front, the app can't see your location at all — no web app can. It catches up the moment
+        you switch back to it, which is usually as you park. If you'd rather not rely on it, turn
+        <span class="ui">Tick off as I go</span> off and use the <span class="ui">Seen</span> button on each stop.
+      </p>
+    </div>
+    <div class="prose">
+      <p>
+        <b>Marking a garden seen doesn't reshuffle your afternoon.</b> It stays in the list struck through as
+        <b>done ✓</b>, so the route keeps its shape, and only the gardens still to go are sent to Google Maps.
+      </p>
+      <p>
+        Google Maps takes ten stops at a time. A longer day is sent in batches — tick gardens off as you go and the
+        button offers the rest.
+      </p>
+    </div>
+  </section>
+
+  <section id="preselect">
+    <div class="section-head">
+      <span class="eyebrow">The control room</span>
+      <h2>Preselect: Filters and Gardens</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Preselect decides what every tab is working with. On a phone it opens as two panes,
+        <span class="ui">Filters</span> and <span class="ui">Gardens</span>; on a tablet or laptop they sit side by side.
+      </p>
+      <p>
+        The one idea to hold on to: <b>ticking a garden locks it in</b>, and a locked-in garden is immune to every
+        filter. Filters decide what you're <em>browsing</em>; locking in decides what you're <em>doing</em>.
+      </p>
+    </div>
+
+    <h3>Filters</h3>
+    <div class="scroll">
+      <table>
+        <tr><th>Filter</th><th>Notes</th></tr>
+        <tr><td>Area</td><td class="wrap-ok">One town per garden, with how many each has. Pukeiti is listed under Ōkato, being 9 km from there and 17 from New Plymouth.</td></tr>
+        <tr><td>Festival</td><td class="wrap-ok">Centuria, Fringe, or both. Four gardens are in both.</td></tr>
+        <tr><td>Open on</td><td class="wrap-ok">One of the ten festival days, with today marked once the festival is on. A garden published as closed that day drops out; one that doesn't publish its days stays in, marked <b>days ?</b></td></tr>
+        <tr><td>Type</td><td class="wrap-ok">Gardens, or places of interest</td></tr>
+        <tr><td>Size</td><td class="wrap-ok">Major (half-day) or worth a stop</td></tr>
+        <tr><td>Hide ones I've seen</td><td class="wrap-ok">On by default. Seen gardens stay on the map in grey, so you can still see where everything is.</td></tr>
+        <tr><td>Distance from where I'm starting</td><td class="wrap-ok">A slider, up to 100 km. Needs a starting point.</td></tr>
+        <tr><td>Prefer</td><td class="wrap-ok">Refreshments, toilets, plants for sale, accessible</td></tr>
+        <tr><td>Rated at least</td><td class="wrap-ok">5, 7 or 9. This leaves out gardens you haven't rated yet.</td></tr>
+        <tr><td>Must visit only</td><td class="wrap-ok">Only gardens you've marked <b>Yes</b> in Garden Edit</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Whatever you set is summarised in one line under the tabs — <em>Fringe · rated 7+ · toilets · hiding seen</em> —
+        so a filter can never quietly empty a list on you. <span class="ui">Reset filters</span> puts everything back.
+      </p>
+    </div>
+
+    <h3>Gardens</h3>
+    <div class="prose">
+      <p>
+        The list you tick. At the top sits an estimate of the day as it stands: the shortest loop through everything
+        locked in, with hours including the visits.
+      </p>
+      <ul>
+        <li><b>Search</b> starts at two letters and matches name, street, area or garden number. Numbers match whole,
+          so <span class="num c">C1</span> finds C1 and not C10 to C19. A search also lists matching gardens that your
+          filters are hiding, in a separate section underneath — so you can find a garden by name and lock it in
+          without undoing anything.</li>
+        <li><span class="ui">Choose all</span> and <span class="ui">Release all</span> act on what's currently shown.
+          Search for "Hāwera", press Choose all, and you've locked in exactly those.</li>
+        <li>A garden you untick stays in view marked <b>released</b> until you next change a filter — room to change
+          your mind without hunting for it again.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="edit">
+    <div class="section-head">
+      <span class="eyebrow">Your own judgements</span>
+      <h2>Garden Edit</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Next to Preselect. Same two-pane shape: a list of gardens on the left, the fields on the right. This is where
+        you record what <em>you</em> think, on one garden or on a dozen at once.
+      </p>
+      <p>
+        <b>Ticking a garden here highlights it for editing. It does nothing to your plan.</b> That's the difference
+        between the two screens, and it's deliberate: rating six gardens shouldn't quietly add them to your day.
+      </p>
+    </div>
+
+    <h3>Finding the gardens to edit</h3>
+    <div class="scroll">
+      <table>
+        <tr><th>Selector</th><th>What it lists</th></tr>
+        <tr><td>Search</td><td class="wrap-ok">Name, street, area or garden number — same rules as Preselect</td></tr>
+        <tr><td>My preselection</td><td class="wrap-ok">Everything currently in play: matching the filters, locked in, or just released</td></tr>
+        <tr><td>My plan</td><td class="wrap-ok">Only the gardens locked into today</td></tr>
+        <tr><td>All gardens</td><td class="wrap-ok">All 81, whatever the filters say</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Each row carries a short summary of what's already set — <em>rated 8 · must visit · note · in plan</em> — so you
+        can see the effect of an edit where you made it. On a phone, tick what you want and press
+        <span class="ui">Edit N highlighted</span>.
+      </p>
+    </div>
+
+    <h3>What you can change</h3>
+    <div class="scroll">
+      <table>
+        <tr><th>Field</th><th>Notes</th></tr>
+        <tr><td>Rating</td><td class="wrap-ok">1 to 10. Feeds the ratings ranking in Nearest and the <b>Rated at least</b> filter.</td></tr>
+        <tr><td>Must visit</td><td class="wrap-ok">Yes, Maybe or No</td></tr>
+        <tr><td>Seen, and the date</td><td class="wrap-ok">The date can only be set once every highlighted garden is seen</td></tr>
+        <tr><td>Visit minutes</td><td class="wrap-ok">Your own figure beats the listing's, and My day's hours update straight away. <span class="ui">use listing</span> puts it back.</td></tr>
+        <tr><td>Notes</td><td class="wrap-ok">Anything you like. <span class="ui">clear</span> empties it.</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Names, addresses, coordinates, facilities and opening days come from the festivals and can't be edited. For a
+        single garden they're shown underneath as <b>From the festival listing</b>.
+      </p>
+      <p>
+        <b>Editing several at once:</b> a field shows its value where the highlighted gardens agree, and
+        <em>mixed</em> where they don't. Changing one field touches that field only, on the gardens where it makes a
+        difference — rating five gardens leaves their notes alone. A blank box over mixed values means <em>leave them
+        as they are</em>, which is why clearing has its own buttons.
+      </p>
+      <p>
+        Changes save as you make them, so there's no Save button to forget in a car park.
+        <span class="ui">Undo</span> says what it will undo — <em>Undo: rating 8, 3 gardens</em> — and goes back through
+        your changes one at a time until you reload the page.
+      </p>
+    </div>
+  </section>
+
+  <section id="backup">
+    <div class="section-head">
+      <span class="eyebrow">Keeping your work</span>
+      <h2>Backing up, and moving to another phone</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Your ratings, notes and visits live in this browser on this phone, and nowhere else. That's what keeps them
+        private, and it's also the risk: clearing Chrome's site data wipes them.
+      </p>
+      <p>
+        <span class="ui">Export notes (CSV)</span> at the bottom of the page hands you a spreadsheet of all 81 gardens
+        through the normal Android share sheet, so you can email it to yourself, drop it in Drive, or send it on.
+        <span class="ui">Import notes</span> reads one back — that's how you move to a new phone, or how ratings gathered
+        at the kitchen table reach everyone else.
+      </p>
+      <p>
+        The spreadsheet opens in Excel or Sheets, so rating gardens at a desk works too. Only the columns you've
+        actually filled in are read back; anything unrecognised is ignored rather than written somewhere odd.
+      </p>
+    </div>
+  </section>
+
+  <section id="trouble">
+    <div class="section-head">
+      <span class="eyebrow">Reality check</span>
+      <h2>If something looks wrong</h2>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>What you see</th><th>What's happening</th></tr>
+        <tr><td class="wrap-ok">Google Maps shows a different house number</td><td class="wrap-ok">The app sends the festival's own pin, and Maps labels it with the nearest street address. Two gardens are known to disagree with their printed address — Winterfell at <span class="num f">F41</span> (59 Gisborne Terrace, pin 167 m up the road) and The Village Gallery in Eltham. Trust the signage on the day.</td></tr>
+        <tr><td class="wrap-ok"><b>days ?</b> against a garden</td><td class="wrap-ok">That festival doesn't publish opening days per garden, so the app won't guess. Unknown is never treated as closed — but check before a long drive.</td></tr>
+        <tr><td class="wrap-ok">A list is emptier than expected</td><td class="wrap-ok">Read the filter summary under the tabs. <b>Rated at least</b> leaves out anything you haven't rated, which catches everyone once.</td></tr>
+        <tr><td class="wrap-ok">Nothing at all in Nearest</td><td class="wrap-ok">No starting point yet. Set <span class="ui">B</span>, or press <span class="ui">Here</span>.</td></tr>
+        <tr><td class="wrap-ok">The day isn't following you</td><td class="wrap-ok">Press <span class="ui">Here</span> once to allow location. The app never asks on its own.</td></tr>
+        <tr><td class="wrap-ok">Distances look approximate</td><td class="wrap-ok">They're measured road distances between known gardens. From a spot the app hasn't measured — a fresh base, or a fix in the middle of nowhere — it estimates, and says which it used.</td></tr>
+      </table>
+    </div>
+    <div class="note">
+      <span class="eyebrow">Reporting anything odd</span>
+      <p>Send the build stamp from the footer, which tab you were on, and what you expected. That's usually enough to
+        find it.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      Garden listings from the Centuria Taranaki Garden Festival and the Taranaki Fringe Garden Festival. Coordinates,
+      road distances and map outlines derived from © OpenStreetMap contributors, available under the ODbL.
+    </p>
+    <p>Distances are estimates. Check opening days with the festival before travelling if a visit depends on it.</p>
+    <p><a class="back" href="./">&#8592; Back to the Trippilator</a></p>
+  </footer>
+</main>
+</body>
+</html>

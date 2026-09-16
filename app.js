@@ -544,7 +544,10 @@ function render() {
   const origin = originFrom(el("origin"));
   // My day can still order chosen gardens without a start point.
   if (!origin && state.mode !== "route") {
-    status.textContent = "Set your base, or press Here, to begin.";
+    // A first run is exactly when the guide is worth offering.
+    status.innerHTML =
+      'Set your base, or press Here, to begin. ' +
+      '<a href="help.html" target="_blank" rel="noopener">How this works</a>';
     el("via-handoff").hidden = true;
     el("plan").hidden = true;
     return;

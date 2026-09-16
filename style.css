@@ -268,6 +268,7 @@ footer { display: grid; gap: 0.5rem; justify-items: center; }
 #provenance .build { display: block; white-space: nowrap; }
 .footer-actions { justify-content: center; }
 .footer-actions button,
+.footer-actions .help-link,
 .import {
   font: inherit;
   font-size: 0.8rem;
@@ -956,4 +957,14 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
   .test-drive { background: #2a1c1c; border-color: #56302f; }
   .test-drive button { background: #1c1414; color: #e7b5b5; border-color: #7a4444; }
   .test-clock { color: #e7b5b5; }
+}
+
+/* Help is a page of its own, so it reads like the other footer actions rather
+   than a link buried in a paragraph. */
+.footer-actions .help-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--green);
+  font-weight: 600;
 }
