@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260916-1608" />
+    <meta name="build" content="20260916-1636" />
   </head>
   <body>
     <header>
@@ -24,6 +24,10 @@
         <button id="base-button" class="base" type="button" title="Your base: where you are staying">
           <span class="base-icon" aria-hidden="true">B</span><span id="base-label">Set base</span>
         </button>
+        <!-- A different kind of control from the two beside it, so it is drawn
+             as an outline circle rather than a third filled pill. -->
+        <a id="help-button" class="help-button" href="help.html" target="_blank" rel="noopener"
+          aria-label="Help: how this works" title="How this works">?</a>
       </div>
     </header>
 
@@ -164,7 +168,7 @@
         rate them in Excel, move them to another device, or send them back to the workbook.
       </p>
       <div class="row footer-actions">
-        <a class="help-link" href="help.html" target="_blank" rel="noopener">How this works</a>
+        <a class="help-link" href="help.html" target="_blank" rel="noopener">Help</a>
         <button id="export" type="button">Export notes (CSV)</button>
         <label class="import">Import notes<input id="import" type="file" accept=".csv,.json,text/csv,application/json" /></label>
       </div>

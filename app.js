@@ -547,7 +547,7 @@ function render() {
     // A first run is exactly when the guide is worth offering.
     status.innerHTML =
       'Set your base, or press Here, to begin. ' +
-      '<a href="help.html" target="_blank" rel="noopener">How this works</a>';
+      '<a href="help.html" target="_blank" rel="noopener">Help</a>';
     el("via-handoff").hidden = true;
     el("plan").hidden = true;
     return;
