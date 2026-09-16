@@ -20,6 +20,7 @@ import * as opening from "./opening.js";
 import * as position from "./position.js";
 import * as handoff from "./handoff.js";
 import * as testmode from "./testmode.js";
+import * as nearby from "./nearby.js";
 
 // ?tm=y walks a day through from a desk. Read once, never stored: see testmode.js.
 const TEST_MODE = testmode.isOn(location.search);
@@ -33,6 +34,10 @@ const STORE_VISITS = "tgo.visits.v1";
 const STORE_PLAN = "tgo.plan.v1";
 const STORE_DONE = "tgo.done.v1";
 const STORE_VIEW = "tgo.view.v1";
+// Where the day has got to: the garden you are standing in, and since when.
+const STORE_TRACK = "tgo.track.v1";
+// The plan an automatic tick was undone on. Auto-seen stays off for it.
+const STORE_AUTO_OFF = "tgo.autoseen-off.v1";
 
 // Every control that shapes what is on screen. A pull-to-refresh on a phone
 // is easy to trigger by accident, and losing the whole query to it is worse
@@ -42,7 +47,7 @@ const VIEW_CONTROLS = [
   "area", "open-on", "festival", "entry-type", "anchor", "max-km",
   "rank", "interest-weight", "min-interest",
 ];
-const VIEW_CHECKBOXES = ["hide-visited", "return-home", "must-visit-only"];
+const VIEW_CHECKBOXES = ["hide-visited", "return-home", "must-visit-only", "auto-seen"];
 
 // Filters decide which gardens match. Changing one ends any lingering.
 // Ranking choices and the search box do not.
@@ -82,12 +87,26 @@ const state = {
   order: "detour",
   // The last GPS fix, and a counter bumped whenever personal road costs change.
   here: null,
+  // The last road table measured for "here", and where it was measured from.
+  hereMeasured: null,
+  // Whether location is already allowed. Following the day never asks: a prompt
+  // nobody pressed a button for is the kind of thing people refuse on reflex.
+  geoAllowed: null,
   travelVersion: 0,
   // Garden Edit: which gardens are highlighted, and what can be undone.
   // Neither survives a reload; both are about the editing in hand.
   picked: new Set(),
   history: new edit.History(),
   lastEdit: "",
+  // Following the day: the state machine in nearby.js, and what it was told last.
+  track: nearby.start(),
+  autoOff: "",
+  // Test mode only: a position placed by hand, and a clock that can be pushed
+  // forward, since a ten-minute visit is a long wait at a desk.
+  testAt: null,
+  testStep: 0,
+  routeOrder: [],
+  testClockMs: 0,
   // On the way: how much of a long run has gone to Google Maps already.
   viaSent: { key: "", from: 0 },
 };
@@ -129,6 +148,8 @@ async function load() {
   state.pre = new Preselection({ locked: readStore(STORE_PLAN, []), lingering: view.lingering || [] });
   state.pre.retain(new Set(state.byId.keys()));
   state.done = readStore(STORE_DONE, null);
+  state.track = readStore(STORE_TRACK, null) || nearby.start();
+  state.autoOff = readStore(STORE_AUTO_OFF, "") || "";
   state.here = readStore(STORE_HERE, null);
   // A pretend fix must not outlive test mode, or a real day starts at a garden
   // nobody has been to.
@@ -579,6 +600,7 @@ function render() {
   }
 
   renderPlan(origin);
+  scheduleFollow();
 }
 
 function lockedPlaces() {
@@ -665,18 +687,41 @@ function legItem(leg) {
   return drive;
 }
 
+/** "Heading to · 1.2 km", or "You're here · 12 min", under a stop being followed. */
+function followLine(place) {
+  const look = nearby.highlightOf(state.track, place.id);
+  if (look === "here") {
+    const minutes = nearby.minutesHere(state.track, followNow());
+    const ready = minutes >= nearby.DWELL_MINUTES;
+    return `<span class="follow is-here">You're here · ${minutes} min${
+      autoSeenOn() ? (ready ? " · ticks off when you leave" : "") : ""
+    }</span>`;
+  }
+  if (look === "heading") {
+    const km = (state.track.metres || 0) / 1000;
+    return `<span class="follow is-heading">Heading to · ${km < 1 ? `${state.track.metres} m` : `${km.toFixed(1)} km`}</span>`;
+  }
+  return "";
+}
+
 function stopItem(place, { done, seenButton }) {
   const stop = document.createElement("li");
-  stop.className = done ? "stop is-done" : "stop";
+  const look = done ? "" : nearby.highlightOf(state.track, place.id);
+  stop.className = done ? "stop is-done" : `stop${look ? ` is-${look}` : ""}`;
   const stay = `${place.minutes ?? engine.DEFAULT_VISIT_MINUTES} min${place.minutes == null ? " (assumed)" : ""}`;
   const buttons = done
     ? `<button type="button" class="link" data-visited="${place.id}" title="Not seen after all: back into the plan">undo</button>`
     : `${seenButton ? `<button type="button" class="seen" data-visited="${place.id}" title="Seen it: tick off, keep the route as it is">Seen</button>` : ""}
        <button type="button" class="link" data-remove="${place.id}">remove</button>`;
+  // The name is a button: tapping it shows the address, which is what a
+  // navigator wants confirmed while the driver is looking for the gate.
   stop.innerHTML = `
     <span class="stay">${done ? "done ✓" : stay}</span>
-    <span class="to">${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}</span>
-    ${buttons}`;
+    <button type="button" class="to" data-detail="${place.id}" title="Address and opening days">
+      ${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}
+    </button>
+    ${buttons}
+    ${done ? "" : followLine(place)}`;
   return stop;
 }
 
@@ -736,6 +781,7 @@ function renderPlan(origin) {
   }
 
   const remaining = route.places.filter((place) => !done.has(place.id));
+  state.routeOrder = remaining.map((place) => place.id);
   const hours = (route.totalMinutes / 60).toFixed(1);
   summary.textContent =
     (fromHere ? "From where you are · " : "") +
@@ -743,6 +789,10 @@ function renderPlan(origin) {
     `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up` +
     (route.method === "exact" ? "" : " · order approximate above 15 stops") +
     (checkDay() ? ` · opening checked for ${opening.dayLabel(checkDay())}` : "");
+  const note = el("follow-note");
+  note.hidden = !el("auto-seen").checked || TEST_MODE || state.geoAllowed !== false;
+  note.textContent = "Press Here once to let the day follow you and tick gardens off by itself.";
+
   // The app plans; the phone navigates. Only what is left, in route order, from
   // wherever the phone is: after three gardens that is not the base. A day too
   // long for one link goes ten at a time, and ticking stops off as Seen moves on.
@@ -1393,7 +1443,34 @@ function wire() {
     if (target.dataset.add) togglePlan(target.dataset.add);
     else if (target.dataset.remove) togglePlan(target.dataset.remove);
     else if (target.dataset.visited) markVisited(target.dataset.visited, !visitOf(target.dataset.visited).visited);
+    else if (target.dataset.detail) showStopDetail(target.dataset.detail);
   });
+
+  // Ticking off by itself is a switch, because if it misbehaves in a car park
+  // there is no time to wait for a new version.
+  el("auto-seen").addEventListener("change", () => {
+    saveView();
+    if (el("auto-seen").checked) {
+      // Turning it back on by hand clears the pause left by an undo.
+      state.autoOff = "";
+      writeStore(STORE_AUTO_OFF, "");
+    }
+    render();
+  });
+
+  if (TEST_MODE) {
+    el("test-step").addEventListener("click", testDrive);
+    el("test-place").addEventListener("click", () => {
+      document.querySelector('[data-mode="map"]').click();
+      el("map-base-hint").hidden = false;
+      el("map-base-text").textContent = "Tap the map to stand there. The day follows you from that spot.";
+      state.map.setPicking((lat, lon) => {
+        state.testAt = { lat, lon };
+        moveToPretendPlace();
+        applyFix({ lat, lon, accuracy: 20 });
+      });
+    });
+  }
 
   el("export").addEventListener("click", () => {
     // A worksheet of every destination, not only the ones already touched, so
@@ -1446,6 +1523,234 @@ function wire() {
   el("clear-plan").addEventListener("click", clearPlan);
 
   wireWhere();
+}
+
+/* -------------------------------------------------- following the day -- */
+
+/**
+ * My day follows you: heading to a garden, at it, and — after ten minutes there
+ * and a drive away — ticked off. The rules are in nearby.js; this gets fixes to
+ * them and turns what comes back into the page.
+ *
+ * Fixes only arrive while the app is on screen. A web app gets nothing while
+ * Google Maps is in front, so this asks on opening, on coming back, and on a
+ * timer that slows right down when the next garden is far away. Because Maps
+ * keeps the phone's position warm, a recent fix costs nothing and returns at once.
+ */
+let followTimer = 0;
+
+/** Test mode can push the clock forward; a real day cannot. */
+function followNow() {
+  return new Date(Date.now() + (TEST_MODE ? state.testClockMs : 0));
+}
+
+/** Gardens the tracking is about: what is still to visit today. */
+function followStops() {
+  const done = new Set(doneIds());
+  return lockedPlaces().filter((place) => !done.has(place.id));
+}
+
+function autoSeenOn() {
+  return el("auto-seen").checked && state.autoOff !== planSignature();
+}
+
+function planSignature() {
+  return nearby.planSignature(state.pre.locked, today());
+}
+
+/** One position, from wherever it came, put through the rules. */
+function applyFix(fix) {
+  const { state: next, events } = nearby.track(state.track, {
+    fix,
+    stops: followStops(),
+    now: followNow(),
+    autoSeen: autoSeenOn(),
+  });
+  state.track = next;
+  writeStore(STORE_TRACK, next);
+  for (const event of events) followEvent(event);
+  render();
+}
+
+function followEvent(event) {
+  if (event.kind === "seen") {
+    markVisited(event.place.id, true);
+    showToast(`Ticked off ${event.place.name} — ${event.minutes} min there.`, [
+      { label: "Undo", action: () => undoAutoSeen(event.place.id) },
+    ]);
+  } else if (event.kind === "unsure") {
+    // Next door to each other, so which one you are in is not ours to decide.
+    showToast(
+      "Two gardens here. Which one are you at?",
+      event.places.map((place) => ({ label: place.name, action: () => standAt(place) }))
+    );
+  }
+}
+
+/** An automatic tick undone: nothing more is ticked off until the plan changes. */
+function undoAutoSeen(id) {
+  markVisited(id, false);
+  state.autoOff = planSignature();
+  writeStore(STORE_AUTO_OFF, state.autoOff);
+  state.track = { ...state.track, atId: id, since: followNow().toISOString() };
+  writeStore(STORE_TRACK, state.track);
+  showToast("Put back, and nothing more will be ticked off by itself until your plan changes.");
+  render();
+}
+
+/** Settling which of two neighbouring gardens you are in. */
+function standAt(place) {
+  state.track = { ...state.track, atId: place.id, since: followNow().toISOString(), headingId: null };
+  writeStore(STORE_TRACK, state.track);
+  hideToast();
+  render();
+}
+
+/** Has location already been allowed? Asked, never triggered. */
+async function locationAllowed() {
+  if (state.geoAllowed !== null) return state.geoAllowed;
+  try {
+    const permission = await navigator.permissions?.query({ name: "geolocation" });
+    state.geoAllowed = permission ? permission.state === "granted" : false;
+    // Granted later, by pressing Here: follow from then on without a reload.
+    if (permission) permission.onchange = () => { state.geoAllowed = permission.state === "granted"; render(); };
+  } catch {
+    state.geoAllowed = false;
+  }
+  return state.geoAllowed;
+}
+
+/** A fix, as cheaply as the distance to the next garden allows. */
+async function followFix() {
+  if (TEST_MODE) {
+    const at = pretendPlace();
+    if (at) applyFix({ lat: at.lat, lon: at.lon, accuracy: 20 });
+    return;
+  }
+  if (!(await locationAllowed())) return;
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve();
+    navigator.geolocation.getCurrentPosition(
+      (fix) => {
+        applyFix({ lat: fix.coords.latitude, lon: fix.coords.longitude, accuracy: fix.coords.accuracy });
+        resolve();
+      },
+      () => resolve(),
+      {
+        // High accuracy only when 100 m matters; otherwise whatever is to hand.
+        enableHighAccuracy: (state.track.metres ?? Infinity) <= 2000,
+        timeout: 20000,
+        maximumAge: nearby.maximumAgeMs(state.track.metres),
+      }
+    );
+  });
+}
+
+/** Only while the app is on screen, and only while there is a day to follow. */
+function scheduleFollow({ force = false } = {}) {
+  if (followTimer && !force) return;
+  clearTimeout(followTimer);
+  followTimer = 0;
+  if (document.visibilityState !== "visible" || !followStops().length) return;
+  followTimer = setTimeout(() => {
+    followTimer = 0;
+    followFix().finally(() => scheduleFollow({ force: true }));
+  }, nearby.pollSeconds(state.track.metres) * 1000);
+}
+
+function startFollowing() {
+  if (!followStops().length) return;
+  followFix().finally(() => scheduleFollow({ force: true }));
+}
+
+/* --------------------------------------------------------------- toast -- */
+
+let toastTimer = 0;
+
+function showToast(text, actions = []) {
+  const toast = el("toast");
+  toast.innerHTML = `<span>${escapeHtml(text)}</span>`;
+  for (const [index, action] of actions.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", action.action);
+    toast.append(button);
+    if (index === actions.length - 1) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "toast-close";
+      close.setAttribute("aria-label", "Dismiss");
+      close.textContent = "×";
+      close.addEventListener("click", hideToast);
+      toast.append(close);
+    }
+  }
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  // Anything with a choice in it waits to be answered; the rest clears itself.
+  if (!actions.length) toastTimer = setTimeout(hideToast, 8000);
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  el("toast").hidden = true;
+}
+
+/** Address, numbers and opening days: what the navigator reads out in the car. */
+function showStopDetail(id) {
+  const place = state.byId.get(id);
+  if (!place) return;
+  const badges = amenityBadges(place);
+  el("stop-detail").innerHTML = `
+    <div class="nr">${escapeHtml(engine.mapLabel(place))}</div>
+    <h3>${escapeHtml(place.name)}</h3>
+    <p>${escapeHtml(place.address || "Address not published")}</p>
+    <p class="note">${escapeHtml(place.area || place.region || "")}${badges ? ` · ${badges}` : ""}</p>
+    <p class="note">${escapeHtml(opening.describeDays(place, festivalDays()))}${
+      place.open?.hours ? ` · ${escapeHtml(place.open.hours)}` : ""
+    }</p>
+    <p><a href="${mapsLink(place)}" target="_blank" rel="noopener">Directions in Google Maps &#8599;</a></p>`;
+  el("stop-dialog").showModal();
+}
+
+/* ------------------------------------------------------- the test drive -- */
+
+/** The stop a test drive is working on: the next one in the drawn route. */
+function testTarget() {
+  const stops = followStops();
+  const byRoute = (state.routeOrder || []).map((id) => stops.find((place) => place.id === id)).filter(Boolean);
+  return byRoute[0] || stops[0] || null;
+}
+
+/** One press: heading to it, arriving, staying long enough, then driving on. */
+function testDrive() {
+  const target = testTarget();
+  if (!target) return;
+  const from = state.testAt || pretendPlace() || target;
+  const step = testmode.DRIVE_STEPS[state.testStep % testmode.DRIVE_STEPS.length];
+  if (step === "heading to") state.testAt = testmode.alongTheWay(from, target, 1200);
+  else if (step === "arriving") state.testAt = testmode.alongTheWay(from, target, 20);
+  else if (step === "staying a while") state.testClockMs += (nearby.DWELL_MINUTES + 1) * 60000;
+  else {
+    state.testAt = testmode.beyond(from, target, 1000);
+    state.testClockMs += 2 * 60000;
+  }
+  state.testStep = (state.testStep + 1) % testmode.DRIVE_STEPS.length;
+  moveToPretendPlace();
+  applyFix({ lat: state.testAt.lat, lon: state.testAt.lon, accuracy: 20 });
+}
+
+function updateTestDrive() {
+  if (!TEST_MODE) return;
+  const target = testTarget();
+  const step = testmode.DRIVE_STEPS[state.testStep % testmode.DRIVE_STEPS.length];
+  el("test-drive").hidden = false;
+  el("test-step").disabled = !target;
+  el("test-step").textContent = target ? `${step}: ${engine.mapLabel(target)}` : "Nothing left to drive to";
+  el("test-clock").textContent = state.testClockMs
+    ? `clock pushed on ${Math.round(state.testClockMs / 60000)} min`
+    : "";
 }
 
 /* ------------------------------------------------------- base and here -- */
@@ -1512,10 +1817,29 @@ async function measureBase() {
   }
 }
 
-/** Measure from where you are to every garden and the base. Online only; estimates otherwise. */
+/**
+ * Measure from where you are to every garden and the base. Online only.
+ *
+ * Throttled hard, because following a day asks for fixes all afternoon and each
+ * measurement is a request to a free routing service. Under 2 km of movement, or
+ * within a quarter of an hour, the last table is carried forward: it is then out
+ * by less than the snapping error the estimates already accept.
+ */
 async function measureHere() {
   const here = state.here;
   if (!here) return false;
+  const last = state.hereMeasured;
+  if (
+    last &&
+    nearby.metresBetween(last, here) < 2000 &&
+    Date.now() - new Date(last.at).getTime() < 15 * 60000
+  ) {
+    here.travel = last.travel;
+    writeStore(STORE_HERE, here);
+    state.model.setPersonal(position.HERE_ID, here.travel);
+    travelChanged();
+    return "kept";
+  }
   const targets = gardensWithCoordinates();
   const base = baseOrigin();
   if (base) targets.push(base);
@@ -1524,6 +1848,7 @@ async function measureHere() {
     const to = position.roadTableRows(json, targets, "to");
     if (!Object.keys(to).length || state.here !== here) return false;
     here.travel = { to };
+    state.hereMeasured = { lat: here.lat, lon: here.lon, at: new Date().toISOString(), travel: here.travel };
     writeStore(STORE_HERE, here);
     state.model.setPersonal(position.HERE_ID, here.travel);
     travelChanged();
@@ -1538,6 +1863,7 @@ async function measureHere() {
 
 /** Where a test run is standing: the last garden seen today, else the base. */
 function pretendPlace() {
+  if (state.testAt) return { name: "a spot you placed", ...state.testAt };
   return testmode.pretendPlace(doneIds(), state.byId, baseOrigin());
 }
 
@@ -1560,6 +1886,7 @@ function updateTestBanner() {
   if (!TEST_MODE) return;
   el("test-banner").hidden = false;
   el("test-banner").textContent = testmode.bannerText(pretendPlace());
+  updateTestDrive();
 }
 
 /** One GPS fix. Not tracking: taken when asked, or when the app is opened again. */
@@ -1587,9 +1914,12 @@ function refreshHere({ quiet = false } = {}) {
         };
         writeStore(STORE_HERE, state.here);
         state.model.setPersonal(position.HERE_ID, {});
+        state.geoAllowed = true;
         travelChanged();
         render();
         measureHere();
+        applyFix({ lat: state.here.lat, lon: state.here.lon, accuracy: state.here.accuracy });
+        scheduleFollow({ force: true });
         resolve(true);
       },
       () => {
@@ -1891,7 +2221,11 @@ function wireWhere() {
     if (state.base) openInMaps(handoff.nextBatch([], baseOrigin()));
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refreshHereIfAllowed();
+    if (document.visibilityState !== "visible") return;
+    refreshHereIfAllowed();
+    // A web app gets no fixes while Google Maps is in front, so coming back is
+    // the moment to catch up on where the day has got to.
+    startFollowing();
   });
 }
 
@@ -1964,6 +2298,7 @@ load()
     // A base saved while offline, or before measuring existed, is measured now.
     if (state.base && !state.base.travel && navigator.onLine) measureBase();
     refreshHereIfAllowed();
+    startFollowing();
     // Ratings, visits and the plan exist only in this browser. Ask it not to
     // clear them when the phone runs short of space. No prompt; Chrome decides.
     navigator.storage?.persist?.().catch(() => {});

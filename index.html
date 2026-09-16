@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260916-1115" />
+    <meta name="build" content="20260916-1441" />
   </head>
   <body>
     <header>
@@ -36,6 +36,11 @@
 
     <!-- Only with ?tm=y on the address: a day walked through from a desk. -->
     <p id="test-banner" class="test-banner" role="status" hidden></p>
+    <div id="test-drive" class="test-drive" hidden>
+      <button id="test-step" type="button">Drive on</button>
+      <button id="test-place" type="button">Put me on the map</button>
+      <span id="test-clock" class="test-clock"></span>
+    </div>
 
     <!-- One line on every tab: what is in play, and the way in to change it. -->
     <div class="filter-strip">
@@ -113,6 +118,10 @@
           <input id="return-home" type="checkbox" checked />
           Return to base
         </label>
+        <label class="check" title="Tick a garden off once you have been there ten minutes and driven away">
+          <input id="auto-seen" type="checkbox" checked />
+          Tick off as I go
+        </label>
         <button id="clear-plan" type="button" class="link">Clear</button>
       </div>
       <p id="plan-no-start" class="plan-note" hidden>
@@ -127,11 +136,14 @@
           <span class="base-icon" aria-hidden="true">B</span> <span id="head-base-label">Head to base</span>
         </button>
       </div>
+      <p id="follow-note" class="note" hidden></p>
       <ol id="plan-list" class="plan-list"></ol>
       <p id="plan-summary" class="summary"></p>
       <button id="navigate" type="button" class="primary" hidden>Open in Google Maps</button>
       <p id="plan-handoff-note" class="note" hidden></p>
     </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
 
     <p id="status" class="status"></p>
     <section id="via-handoff" class="plan" hidden>
@@ -167,6 +179,13 @@
         Distances are estimates; check opening days with the festival before travelling.
       </p>
     </footer>
+
+    <dialog id="stop-dialog" class="stop-dialog">
+      <form method="dialog">
+        <div id="stop-detail"></div>
+        <menu><button value="close" class="primary">Close</button></menu>
+      </form>
+    </dialog>
 
     <dialog id="base-dialog" class="base-dialog">
       <form method="dialog">

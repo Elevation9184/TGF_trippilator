@@ -37,3 +37,27 @@ export function bannerText(place) {
     ? `Test mode: pretending to be at ${place.name}. Here and Google Maps use this, not your GPS.`
     : "Test mode: set your base, and the app will pretend to be there.";
 }
+
+/**
+ * Walking a day through at a desk: a point a given distance short of a stop,
+ * and a point the same distance beyond it. Enough to play approach, arrival and
+ * departure without driving anywhere, and pure, so it is tested.
+ */
+export function alongTheWay(from, to, metresShort) {
+  const metresPerDegree = 111_320;
+  const dLat = (to.lat - from.lat) * metresPerDegree;
+  const dLon = (to.lon - from.lon) * metresPerDegree * Math.cos((to.lat * Math.PI) / 180);
+  const total = Math.hypot(dLat, dLon);
+  // Nowhere to come from: approach from due north, which is as good as any.
+  if (total < 1) return { lat: to.lat + metresShort / metresPerDegree, lon: to.lon };
+  const share = metresShort / total;
+  return { lat: to.lat - (to.lat - from.lat) * share, lon: to.lon - (to.lon - from.lon) * share };
+}
+
+/** A point beyond the stop, as if you had driven on past it. */
+export function beyond(from, to, metres) {
+  return alongTheWay(from, to, -metres);
+}
+
+/** The steps of a test drive, in order. Staying is what lets a visit count. */
+export const DRIVE_STEPS = ["heading to", "arriving", "staying a while", "driving on"];

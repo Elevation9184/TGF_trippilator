@@ -852,3 +852,95 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
 .base-dialog menu .link { margin-right: auto; }
 #map-base-hint { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
 .map-base-status { display: block; font-size: 0.74rem; opacity: 0.85; }
+
+/* ------------------------------------------------- following the day ---- */
+
+/* A light border rather than a wash: it has to read in sun, in dark mode, and
+   for eyes that do not separate orange from green. The words carry the meaning. */
+.stop { flex-wrap: wrap; border: 2px solid transparent; border-radius: var(--radius); padding: 0.2rem 0.4rem; }
+.stop.is-heading { border-color: #d98324; background: #fff8ef; }
+.stop.is-here { border-color: #2f7d4f; background: #f0f8f2; }
+.stop .follow { flex-basis: 100%; font-size: 0.75rem; color: var(--muted); }
+.stop .follow.is-heading { color: #a35c00; font-weight: 600; }
+.stop .follow.is-here { color: #216c41; font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .stop.is-heading { background: #2a2118; }
+  .stop.is-here { background: #16251c; }
+  .stop .follow.is-heading { color: #e8a860; }
+  .stop .follow.is-here { color: #7fc79c; }
+}
+/* The name is a button now, but must still read as the name of a garden. */
+.stop .to {
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  width: min(30rem, calc(100% - 2rem));
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.8rem;
+  background: #223028;
+  color: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 0.85rem;
+  z-index: 20;
+}
+.toast span { flex: 1; min-width: 60%; }
+.toast button {
+  font: inherit;
+  font-weight: 600;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  color: #fff;
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+}
+.toast .toast-close { border: 0; font-size: 1.1rem; line-height: 1; padding: 0.1rem 0.4rem; }
+
+.stop-dialog { max-width: min(26rem, calc(100% - 2rem)); }
+.stop-dialog .nr { font-weight: 700; color: var(--green); }
+.stop-dialog h3 { margin: 0.2rem 0; }
+.stop-dialog p { margin: 0.3rem 0; }
+
+.test-drive {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.75rem;
+  background: #f3e2e2;
+  border-bottom: 1px solid #d9b9b9;
+}
+.test-drive button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #a35252;
+  border-radius: 999px;
+  background: #fff;
+  color: #7a2e2e;
+  cursor: pointer;
+}
+.test-clock { font-size: 0.75rem; color: #7a2e2e; }
+@media (prefers-color-scheme: dark) {
+  .test-drive { background: #2a1c1c; border-color: #56302f; }
+  .test-drive button { background: #1c1414; color: #e7b5b5; border-color: #7a4444; }
+  .test-clock { color: #e7b5b5; }
+}
