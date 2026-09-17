@@ -56,3 +56,28 @@ export function directionsUrl({ destination, waypoints = [], navigate = true, or
   if (navigate) url.searchParams.set("dir_action", "navigate");
   return url.toString();
 }
+
+/**
+ * What has already gone to Google Maps today.
+ *
+ * Sending is not visiting, so this never marks anything seen — it only lets the
+ * day show that a garden was handed over and has not been ticked off since. The
+ * batch is always rebuilt from what is still to do, so a garden you did not
+ * reach is sent again; the point of remembering is that you are told, rather
+ * than quietly driving the same ten gardens twice.
+ */
+export function sentToday(store, day) {
+  return store && store.date === day ? { ...store.at } : {};
+}
+
+/** The store with these stops stamped as sent, dropping any earlier day's. */
+export function markSent(store, ids, day, at = new Date()) {
+  const stamped = sentToday(store, day);
+  for (const id of ids) stamped[id] = at.toISOString();
+  return { date: day, at: stamped };
+}
+
+/** How many of these stops went last time and are still not marked seen. */
+export function resendCount(places, sent) {
+  return places.filter((place) => sent[place.id]).length;
+}

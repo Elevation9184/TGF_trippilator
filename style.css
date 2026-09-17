@@ -900,7 +900,11 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
 .stop { flex-wrap: wrap; border: 2px solid transparent; border-radius: var(--radius); padding: 0.2rem 0.4rem; }
 .stop.is-heading { border-color: #d98324; background: #fff8ef; }
 .stop.is-here { border-color: #2f7d4f; background: #f0f8f2; }
-.stop .follow { flex-basis: 100%; font-size: 0.75rem; color: var(--muted); }
+/* One line under the stop for both: where you are against it, and whether it
+   has been handed to Maps. Information, not alarm — so it stays grey. */
+.stop-status { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; }
+.stop .follow { font-size: 0.75rem; color: var(--muted); }
+.stop .sent { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .stop .follow.is-heading { color: #a35c00; font-weight: 600; }
 .stop .follow.is-here { color: #216c41; font-weight: 600; }
 @media (prefers-color-scheme: dark) {

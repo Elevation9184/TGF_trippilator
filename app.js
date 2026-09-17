@@ -33,6 +33,9 @@ const STORE_VISITS = "tgo.visits.v1";
 // locked-in set are one thing, so an existing plan carries straight over.
 const STORE_PLAN = "tgo.plan.v1";
 const STORE_DONE = "tgo.done.v1";
+// What has gone to Google Maps today. Sending is not visiting: this only lets
+// the day show a garden was handed over and never ticked off.
+const STORE_SENT = "tgo.sent.v1";
 const STORE_VIEW = "tgo.view.v1";
 // Where the day has got to: the garden you are standing in, and since when.
 const STORE_TRACK = "tgo.track.v1";
@@ -81,6 +84,7 @@ const state = {
   visits: new Map(),
   pre: new Preselection(),
   done: null,
+  sent: null,
   mode: "nearest",
   map: null,
   mapView: null,
@@ -146,6 +150,7 @@ async function load() {
   state.pre = new Preselection({ locked: readStore(STORE_PLAN, []), lingering: view.lingering || [] });
   state.pre.retain(new Set(state.byId.keys()));
   state.done = readStore(STORE_DONE, null);
+  state.sent = readStore(STORE_SENT, null);
   state.track = readStore(STORE_TRACK, null) || nearby.start();
   state.autoOff = readStore(STORE_AUTO_OFF, "") || "";
   state.here = readStore(STORE_HERE, null);
@@ -617,6 +622,14 @@ function legItem(leg) {
   return drive;
 }
 
+/** "sent 2:32 pm", on a stop handed to Maps and not yet ticked off. */
+function sentMark(place) {
+  const at = handoff.sentToday(state.sent, today())[place.id];
+  if (!at) return "";
+  const clock = new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `<span class="sent" title="Handed to Google Maps. Tick it off when you have been.">&#8599; sent ${escapeHtml(clock)}</span>`;
+}
+
 /** "Heading to · 1.2 km", or "You're here · 12 min", under a stop being followed. */
 function followLine(place) {
   const look = nearby.highlightOf(state.track, place.id);
@@ -651,7 +664,7 @@ function stopItem(place, { done, seenButton }) {
       ${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}
     </button>
     ${buttons}
-    ${done ? "" : followLine(place)}`;
+    ${done ? "" : `<span class="stop-status">${followLine(place)}${sentMark(place)}</span>`}`;
   return stop;
 }
 
@@ -728,14 +741,36 @@ function renderPlan(origin) {
   // long for one link goes ten at a time, and ticking stops off as Seen moves on.
   const batch = handoff.nextBatch(remaining, finish);
   el("navigate").hidden = !batch;
-  el("plan-handoff-note").hidden = !batch?.more;
+  el("plan-handoff-note").hidden = true;
   if (!batch) return;
   el("navigate").textContent = batch.more
     ? `Open the next ${batch.last} stops in Google Maps`
     : done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
-  el("plan-handoff-note").textContent =
-    "Google Maps takes ten stops at a time. Mark them Seen as you go, and this sends the rest.";
-  el("navigate").onclick = () => openInMaps(batch);
+
+  // Gardens already handed over and still not ticked off go again — which is
+  // right, since you have not been — but nobody should discover that in the car.
+  const gardens = [...batch.waypoints, batch.destination].filter((place) => state.byId.has(place.id));
+  const again = handoff.resendCount(gardens, handoff.sentToday(state.sent, today()));
+  const notes = [];
+  if (again) {
+    notes.push(
+      `${again} garden${again === 1 ? "" : "s"} from your last batch ${again === 1 ? "isn't" : "aren't"} ` +
+        "marked seen, so they go again — tick off any you have done."
+    );
+  }
+  if (batch.more) {
+    notes.push("Google Maps takes ten stops at a time. Mark them Seen as you go, and this sends the rest.");
+  }
+  el("plan-handoff-note").hidden = !notes.length;
+  el("plan-handoff-note").textContent = notes.join(" ");
+
+  el("navigate").onclick = () => {
+    openInMaps(batch);
+    state.sent = handoff.markSent(state.sent, gardens.map((place) => place.id), today());
+    writeStore(STORE_SENT, state.sent);
+    showToast(`${gardens.length} stop${gardens.length === 1 ? "" : "s"} sent to Google Maps. Tick them off as you go.`);
+    render();
+  };
 }
 
 /** The filters in words, for the strip under the tabs. */
