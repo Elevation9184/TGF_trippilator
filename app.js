@@ -107,8 +107,6 @@ const state = {
   testStep: 0,
   routeOrder: [],
   testClockMs: 0,
-  // On the way: how much of a long run has gone to Google Maps already.
-  viaSent: { key: "", from: 0 },
 };
 
 /* Storage can throw in private windows, so never let it break the page. */
@@ -548,7 +546,6 @@ function render() {
     status.innerHTML =
       'Set your base, or press Here, to begin. ' +
       '<a href="help.html" target="_blank" rel="noopener">Help</a>';
-    el("via-handoff").hidden = true;
     el("plan").hidden = true;
     return;
   }
@@ -593,9 +590,7 @@ function render() {
       status.textContent = `${rows.length} shown${ranking} · ${source}`;
     }
     rows.forEach((row, index) => results.append(resultRow(row, index)));
-    renderViaHandoff(origin);
   } else {
-    el("via-handoff").hidden = true;
     status.textContent =
       state.pre.locked.length || doneIds().length
         ? ""
@@ -613,74 +608,6 @@ function lockedPlaces() {
 /** Ready to route: personal visit minutes applied. */
 function routable(places) {
   return places.map(personal);
-}
-
-function renderViaHandoff(origin) {
-  const panel = el("via-handoff");
-  if (state.mode !== "via") {
-    panel.hidden = true;
-    return;
-  }
-  const destination = originFrom(el("destination"));
-  const list = el("via-list");
-  const summary = el("via-summary");
-  panel.hidden = false;
-  list.innerHTML = "";
-
-  const chosen = routable(lockedPlaces());
-  if (!chosen.length || !destination) {
-    summary.textContent = "Tick + Plan on anything below to build a run.";
-    el("via-navigate").disabled = true;
-    el("via-navigate").textContent = "Send this run to Google Maps";
-    el("via-handoff-note").hidden = true;
-    return;
-  }
-
-  // Both ends pinned, the middle optimised. Sorting stops by how far along the
-  // way they are is optimal only while every stop is a cheap detour; as soon as
-  // you add somewhere you simply want to go, it stops being.
-  const route = memoRoute(
-    "run",
-    chosen,
-    origin,
-    [destination.id, destination.lat, destination.lon],
-    () => engine.buildRoute(chosen, origin, state.model, false, destination)
-  );
-  const direct = state.model.from(origin, destination).roadKm;
-
-  route.legs.forEach((leg, index) => {
-    list.append(legItem(leg));
-    const place = route.places[index];
-    if (place) list.append(stopItem(place, { done: false, seenButton: false }));
-  });
-
-  const hours = (route.totalMinutes / 60).toFixed(1);
-  summary.textContent =
-    `${route.places.length} stops · ${route.totalKm.toFixed(1)} km ` +
-    `(${(route.totalKm - direct).toFixed(1)} km more than driving straight there) · ` +
-    `${Math.round(route.travelMinutes)} min driving · ${hours} hours all up`;
-  el("via-navigate").disabled = false;
-
-  // No Seen buttons here to shrink a long run, so batches are counted instead.
-  const key = [...route.places.map((place) => place.id), destination.id, destination.lat, destination.lon].join("|");
-  if (state.viaSent.key !== key) state.viaSent = { key, from: 0 };
-  let batch = handoff.nextBatch(route.places, destination, state.viaSent.from);
-  if (!batch) {
-    // All sent: the next press starts again from the top.
-    state.viaSent.from = 0;
-    batch = handoff.nextBatch(route.places, destination);
-  }
-  const long = batch.total > handoff.MAX_WAYPOINTS + 1;
-  el("via-navigate").textContent = long
-    ? `Send stops ${batch.first}–${batch.last} of ${batch.total} to Google Maps`
-    : "Send this run to Google Maps";
-  el("via-handoff-note").hidden = !long;
-  el("via-handoff-note").textContent = "Google Maps takes ten stops at a time. Press again at the last one for the rest.";
-  el("via-navigate").onclick = () => {
-    openInMaps(batch);
-    state.viaSent.from = batch.more ? batch.last : 0;
-    render();
-  };
 }
 
 function legItem(leg) {
@@ -1522,7 +1449,6 @@ function wire() {
     savePlan();
     render();
   };
-  el("via-clear").addEventListener("click", clearPlan);
   el("clear-plan").addEventListener("click", clearPlan);
 
   wireWhere();

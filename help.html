@@ -184,6 +184,9 @@
     font-weight: 500;
   }
   .step p { color: var(--ink-soft); grid-column: 2; font-size: 0.95rem; }
+  /* Find / Narrow / Do rather than 01-05: wider labels, wider column. */
+  .flow.roles .step { grid-template-columns: 4.1rem 1fr; }
+  .flow.roles .step-n { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.68rem; }
 
   /* Tables -------------------------------------------------------------- */
   .scroll { overflow-x: auto; }
@@ -270,6 +273,7 @@
   <div class="wrap nav-inner">
     <a href="#install">Install</a>
     <a href="#day">How a day runs</a>
+    <a href="#pieces">How the pieces fit</a>
     <a href="#base">B and Here</a>
     <a href="#nearest">Nearest</a>
     <a href="#ontheway">On the way</a>
@@ -349,6 +353,52 @@
         <p>The app notices when you've been somewhere and marks it seen, or you can tap <span class="ui">Seen</span>
           yourself. What's left reshuffles, and the next handoff sends only that.</p>
       </div>
+    </div>
+  </section>
+
+  <section id="pieces">
+    <div class="section-head">
+      <span class="eyebrow">The model</span>
+      <h2>How the pieces fit together</h2>
+    </div>
+    <div class="prose">
+      <p>
+        There are three ways of finding gardens, one way of narrowing what they all look at, and one place where the
+        day ends up. Knowing which is which makes the rest of this guide obvious.
+      </p>
+    </div>
+    <div class="flow roles">
+      <div class="step">
+        <span class="step-n">Find</span><h3>Nearest — what's close to a point</h3>
+        <p>Closest to your base, to where you are, or to any garden. A quick look around: <em>what could we do
+          next that's near here?</em></p>
+      </div>
+      <div class="step">
+        <span class="step-n">Find</span><h3>On the way — what's worth stopping at en route</h3>
+        <p>We're driving from here to there today. Which gardens barely lengthen the trip?</p>
+      </div>
+      <div class="step">
+        <span class="step-n">Find</span><h3>Map — where things are, and grabbing several at once</h3>
+        <p>The graphical way: tap pins, or box a whole area in one gesture.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">Narrow</span><h3>Preselect — the universe all three draw from</h3>
+        <p>Area, festival, opening day, facilities, ratings. Underneath all three finders, deciding which gardens
+          are even in play.</p>
+      </div>
+      <div class="step">
+        <span class="step-n">Do</span><h3>My day — the tour you actually drive</h3>
+        <p>Everything you lock in from any of the three lands here, in the shortest order, and this is what goes to
+          Google Maps.</p>
+      </div>
+    </div>
+    <div class="note good">
+      <span class="eyebrow">The one rule</span>
+      <p>
+        There is only ever <b>one plan</b>. Ticking a garden in Preselect, tapping its pin on the Map, or pressing
+        <span class="ui">+ Plan</span> on a result are three doors into the same room. My day is that room — add and
+        remove there until the day looks right.
+      </p>
     </div>
   </section>
 
@@ -440,8 +490,12 @@
     <div class="prose">
       <p>
         A row reading <b>+1.2 km</b> means the whole journey gets 1.2 km longer if you stop there. <b>free</b> means
-        it's practically on the way. Tick the ones you want with <span class="ui">+ Plan</span>, then
-        <span class="ui">Send this run to Google Maps</span>.
+        it's practically on the way. Tick the ones you want with <span class="ui">+ Plan</span> and they join your
+        plan, ready in <b>My day</b> — this tab finds gardens, it doesn't drive you anywhere.
+      </p>
+      <p>
+        <span class="ui">Heading to</span> is the measuring stick rather than a destination you'll be routed to:
+        every <b>+ km</b> on this screen is measured against driving straight there.
       </p>
     </div>
   </section>
@@ -494,15 +548,15 @@
     </div>
     <div class="prose">
       <p>
-        The plan itself: your locked-in gardens put into the shortest driving order, with the legs between them, how
-        long each visit is assumed to take, and the total. Up to fifteen gardens it finds the genuinely shortest
-        order, not an approximation.
+        The plan itself, and the only screen that sends anything to Google Maps: your locked-in gardens put into the
+        shortest driving order, with the legs between them, how long each visit is assumed to take, and the total. Up
+        to fifteen gardens it finds the genuinely shortest order, not an approximation.
       </p>
     </div>
     <div class="scroll">
       <table>
         <tr><th>Control</th><th>What it does</th></tr>
-        <tr><td><span class="ui">Return to base</span></td><td class="wrap-ok">Finish the loop back at B</td></tr>
+        <tr><td><span class="ui">Return to base</span></td><td class="wrap-ok">Finish the loop back at B. Turn it off for a one-way day and the route ends wherever is shortest; <span class="ui">remove</span> the stops you don't want to reach.</td></tr>
         <tr><td><span class="ui">Tick off as I go</span></td><td class="wrap-ok">Let the app mark gardens seen by itself — see below</td></tr>
         <tr><td><span class="ui">Re-plan from here</span></td><td class="wrap-ok">Takes a fix and reorders what's still to go, from where you actually are</td></tr>
         <tr><td><span class="ui">Head to base</span></td><td class="wrap-ok">Straight directions home, from your live position</td></tr>
