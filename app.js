@@ -642,8 +642,9 @@ function followLine(place) {
     }</span>`;
   }
   if (look === "heading") {
-    const km = (state.track.metres || 0) / 1000;
-    return `<span class="follow is-heading">Heading to · ${km < 1 ? `${state.track.metres} m` : `${km.toFixed(1)} km`}</span>`;
+    const metres = state.track.headingMetres ?? state.track.metres ?? 0;
+    const km = metres / 1000;
+    return `<span class="follow is-heading">Heading to · ${km < 1 ? `${metres} m` : `${km.toFixed(1)} km`}</span>`;
   }
   return "";
 }
@@ -728,10 +729,23 @@ function renderPlan(origin) {
 
   const returnHome = el("return-home").checked && Boolean(base);
   const finish = returnHome ? base : null;
+
+  // Gardens already handed to Google Maps are committed: the car does them
+  // next, so the day routes them first and solves the rest onward from there.
+  // Otherwise adding or removing one garden re-optimises everything and
+  // scatters the sent ones through the day, and the plan stops agreeing with
+  // the route Maps is driving. Until anything is sent the whole day is solved
+  // together, done gardens included, so ticking one off never reshuffles it.
+  const sent = handoff.sentToday(state.sent, today());
+  const committedIds = remainingPlaces.filter((place) => sent[place.id]).map((place) => place.id);
+  const committed = committedIds.length ? chosen.filter((place) => sent[place.id] || done.has(place.id)) : [];
+  const rest = committedIds.length ? chosen.filter((place) => !sent[place.id] && !done.has(place.id)) : chosen;
+  const committedKey = [...committedIds].sort().join(",");
   const route = origin
-    ? memoRoute("day", chosen, origin, [returnHome, base?.lat, base?.lon], () =>
-        engine.buildRoute(chosen, origin, state.model, false, finish))
-    : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
+    ? memoRoute("day", chosen, origin, [returnHome, base?.lat, base?.lon, committedKey], () =>
+        engine.buildCommittedRoute(committed, rest, origin, state.model, finish))
+    : memoRoute("day-free", chosen, null, [committedKey], () =>
+        engine.buildCommittedRoute(committed, rest, null, state.model, null));
 
   const remaining = route.places.filter((place) => !done.has(place.id));
   state.routeOrder = remaining.map((place) => place.id);
@@ -747,7 +761,6 @@ function renderPlan(origin) {
 
   // The app plans; the phone navigates. What goes to Maps is worked out in
   // handoff.js: the gardens Maps already has, topped up to ten from the plan.
-  const sent = handoff.sentToday(state.sent, today());
   const batch = handoff.planHandoff(remaining, sent, finish);
   const into = (list, place) => {
     const leg = arrival.get(place.id);
@@ -1568,11 +1581,16 @@ function planSignature() {
 
 /** One position, from wherever it came, put through the rules. */
 function applyFix(fix) {
+  const stops = followStops();
+  const sent = handoff.sentToday(state.sent, today());
+  const inMaps = stops.filter((place) => sent[place.id]).map((place) => place.id);
   const { state: next, events } = nearby.track(state.track, {
     fix,
-    stops: followStops(),
+    stops,
     now: followNow(),
     autoSeen: autoSeenOn(),
+    // "Heading to" follows what Google Maps is driving, once it is driving anything.
+    prefer: inMaps.length ? new Set(inMaps) : null,
   });
   state.track = next;
   writeStore(STORE_TRACK, next);

@@ -15,7 +15,8 @@
  *
  *   Tick off the wrong one of two neighbours. Tītoki is 16A Kinross Drive and
  *   Te Rongohua is 16B; no GPS separates those. Where two candidates are within
- *   a margin of each other, it asks rather than guesses.
+ *   a margin of each other it asks rather than guesses — unless Google Maps is
+ *   driving to exactly one of them, which settles it.
  *
  *   Trust a poor fix. A 500 m accuracy circle says nothing about which garden
  *   you are in, so those fixes only move the "heading to" highlight.
@@ -65,7 +66,7 @@ function ranked(fix, stops) {
  * `autoSeen: false` still tracks and highlights, but never reports "seen":
  * undoing an automatic tick turns it off until the plan or the day changes.
  */
-export function track(state, { fix, stops, now = new Date(), autoSeen = true }) {
+export function track(state, { fix, stops, now = new Date(), autoSeen = true, prefer = null }) {
   const next = { ...state };
   const events = [];
   const order = ranked(fix, stops);
@@ -95,21 +96,32 @@ export function track(state, { fix, stops, now = new Date(), autoSeen = true }) 
   if (!next.atId && crisp && order.length) {
     const [first, second] = order;
     if (first.metres <= ARRIVE_METRES) {
-      if (second && second.metres - first.metres < AMBIGUOUS_MARGIN_METRES) {
-        // Next door to each other: which one you are in is not ours to decide.
-        events.push({ kind: "unsure", places: [first.place, second.place] });
-      } else {
-        next.atId = first.place.id;
+      const neighbours = second && second.metres - first.metres < AMBIGUOUS_MARGIN_METRES;
+      // Next door to each other, GPS cannot say which. But when Google Maps is
+      // driving to exactly one of the pair, that is where you are going, so it
+      // is taken; only when both or neither are in Maps is it yours to decide.
+      const inMaps = neighbours && prefer?.size ? [first, second].filter((row) => prefer.has(row.place.id)) : [];
+      const chosen = !neighbours ? first : inMaps.length === 1 ? inMaps[0] : null;
+      if (chosen) {
+        next.atId = chosen.place.id;
         next.since = now.toISOString();
-        events.push({ kind: "arrived", place: first.place, metres: Math.round(first.metres) });
+        events.push({ kind: "arrived", place: chosen.place, metres: Math.round(chosen.metres) });
+      } else {
+        events.push({ kind: "unsure", places: [first.place, second.place] });
       }
     }
   }
 
   // Heading to: the nearest stop within range, unless you are already at one.
+  // `prefer`, when given, narrows it to the gardens Google Maps holds: the car
+  // is driving Maps' route, and a plan garden it happens to pass on the way is
+  // not where it is going. Arriving is still judged against every stop above,
+  // so pulling in somewhere unplanned is still noticed.
   const nearest = order[0];
-  next.headingId =
-    !next.atId && nearest && nearest.metres <= APPROACH_KM * 1000 ? nearest.place.id : null;
+  const aimed = prefer?.size ? order.find((row) => prefer.has(row.place.id)) : nearest;
+  next.headingId = !next.atId && aimed && aimed.metres <= APPROACH_KM * 1000 ? aimed.place.id : null;
+  next.headingMetres = next.headingId ? Math.round(aimed.metres) : null;
+  // How often to poll follows the nearest stop of all, since any can be arrived at.
   next.metres = nearest ? Math.round(nearest.metres) : null;
   return { state: next, events };
 }

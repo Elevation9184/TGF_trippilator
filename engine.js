@@ -560,3 +560,39 @@ export function findPlaces(places, query) {
       fold(gardenNr(p)).split(", ").includes(wanted)
   );
 }
+
+/**
+ * A day with some stops committed: handed to Google Maps, so the car will do
+ * those next whatever else changes. They come first, in their own best order,
+ * and the rest is solved onward from the last of them.
+ *
+ * Solving everything together is shorter on paper but wrong in the car: add or
+ * remove one garden after sending and the whole day re-optimises, scattering
+ * the sent gardens through it, so the plan stops agreeing with the route Maps
+ * is actually driving. Field-app only; the Python planner has no Google Maps.
+ */
+export function buildCommittedRoute(committed, rest, origin, model, finish = null) {
+  const solve = (stops, from, end) =>
+    from ? buildRoute(stops, from, model, false, end) : routeFromBestFirstStop(stops, model);
+  if (!committed.length) return solve(rest, origin, finish);
+  if (!rest.length) return solve(committed, origin, finish);
+  const head = solve(committed, origin, null);
+  const tail = buildRoute(rest, head.places[head.places.length - 1], model, false, finish);
+  const places = [...head.places, ...tail.places];
+  const legs = [...head.legs, ...tail.legs];
+  const travelMinutes = legs.reduce((sum, leg) => sum + leg.estimate.minutes, 0);
+  const visitMinutes = places.reduce((sum, p) => sum + (p.minutes ?? DEFAULT_VISIT_MINUTES), 0);
+  return {
+    places,
+    legs,
+    startsAtFirstStop: Boolean(head.startsAtFirstStop),
+    returnsToStart: false,
+    finish,
+    method: head.method !== "exact" ? head.method : tail.method,
+    totalKm: legs.reduce((sum, leg) => sum + leg.estimate.roadKm, 0),
+    travelMinutes,
+    visitMinutes,
+    totalMinutes: travelMinutes + visitMinutes,
+    assumedVisitCount: places.filter((p) => p.minutes == null).length,
+  };
+}
