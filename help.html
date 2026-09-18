@@ -190,7 +190,8 @@
 
   /* Tables -------------------------------------------------------------- */
   .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 22rem; }
+  /* 18rem fits a 360 px phone's column, so tables wrap rather than scroll sideways. */
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 18rem; }
   th, td { text-align: left; padding: 0.5rem 0.9rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
   th {
     font-size: 0.72rem;
@@ -351,7 +352,7 @@
       <div class="step">
         <span class="step-n">05</span><h3>Tick gardens off as you go</h3>
         <p>The app notices when you've been somewhere and marks it seen, or you can tap <span class="ui">Seen</span>
-          yourself. What's left reshuffles, and the next handoff sends only that.</p>
+          yourself. It moves to Completed, and the button tops Google Maps back up with the next ones.</p>
       </div>
     </div>
   </section>
@@ -560,7 +561,7 @@
         <tr><td><span class="ui">Tick off as I go</span></td><td class="wrap-ok">Let the app mark gardens seen by itself — see below</td></tr>
         <tr><td><span class="ui">Re-plan from here</span></td><td class="wrap-ok">Takes a fix and reorders what's still to go, from where you actually are</td></tr>
         <tr><td><span class="ui">Head to base</span></td><td class="wrap-ok">Straight directions home, from your live position</td></tr>
-        <tr><td><span class="ui">Open in Google Maps</span></td><td class="wrap-ok">Hands over the stops still to go, in order</td></tr>
+        <tr><td>The Google Maps button</td><td class="wrap-ok">Sends, tops up, or reopens the route — see below</td></tr>
         <tr><td>Tap a garden's name</td><td class="wrap-ok">Its address, numbers and opening days — for the navigator confirming the next gate</td></tr>
       </table>
     </div>
@@ -606,20 +607,56 @@
         <span class="ui">Tick off as I go</span> off and use the <span class="ui">Seen</span> button on each stop.
       </p>
     </div>
+    <h3>Three groups, and the button between them</h3>
     <div class="prose">
       <p>
-        <b>Marking a garden seen doesn't reshuffle your afternoon.</b> It stays in the list struck through as
-        <b>done ✓</b>, so the route keeps its shape, and only the gardens still to go are sent to Google Maps.
+        My day splits the gardens into three, in the order a day moves through them:
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>Group</th><th>What's in it</th></tr>
+        <tr><td>Sent to Google Maps</td><td class="wrap-ok">What Google Maps has right now, and the time that route was built. Appears once you first press the button.</td></tr>
+        <tr><td>Today's plan</td><td class="wrap-ok">Everything else still to do, waiting its turn.</td></tr>
+        <tr><td>Completed</td><td class="wrap-ok">What you've seen today, with the time you ticked it off. Appears with the first one.</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        The button sits between the first two because that's what it does: it moves gardens up from the plan into
+        Google Maps. Google takes ten at a time, so the button's words change with the day, and always say exactly
+        what a press will do:
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>When</th><th>The button says</th></tr>
+        <tr><td class="wrap-ok">Nothing sent yet, ten or fewer</td><td class="wrap-ok"><b>Send all 6 to Google Maps</b></td></tr>
+        <tr><td class="wrap-ok">Nothing sent yet, more than ten</td><td class="wrap-ok"><b>Send first 10 to Google Maps</b></td></tr>
+        <tr><td class="wrap-ok">Room in Google Maps, more waiting</td><td class="wrap-ok"><b>Add next 3 gardens to Google Maps</b></td></tr>
+        <tr><td class="wrap-ok">Room for everything that's left</td><td class="wrap-ok"><b>Add remaining gardens to Google Maps</b></td></tr>
+        <tr><td class="wrap-ok">Google Maps full, or nothing waiting</td><td class="wrap-ok"><b>Open again in Google Maps</b></td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        <b>Seen</b> — tapped or noticed — moves a garden to Completed, wherever it was. The route keeps its shape, so
+        the afternoon doesn't reshuffle behind you, and the room it leaves in Google Maps is what lets the next ones
+        be added. Each top-up builds a fresh Google Maps route: the gardens it already had plus the new ones, in the
+        order you'll drive them.
       </p>
       <p>
-        Google Maps takes ten stops at a time. A longer day is sent in batches — tick gardens off as you go and the
-        button offers the rest.
+        <b>Remove</b> takes a garden out of the day altogether. If Google Maps had it, the next press builds the
+        route without it — that's the way to drop a stop from a route you're already driving.
       </p>
       <p>
-        Each stop that has been handed over is marked <b>&#8599; sent 2:32 pm</b> until you tick it off. If you press
-        the button again while some of the last batch still aren't marked seen, the app says so first: those gardens
-        go again, which is right if you haven't been, and wrong only if you forgot to tick them. Sending is never
-        taken as visiting.
+        <b>Open again</b> is there for when Google Maps gets closed, swiped away, or interrupted by a phone call
+        halfway round. It brings the same route back and changes nothing.
+      </p>
+      <p>
+        <b>Undo</b> on a completed garden sends it back where it came from: into the Google Maps group if it had
+        been sent, otherwise into the plan. And the drive home counts as one of Google's ten, so on a day that ends
+        with ten gardens in one go, the app says so and leaves home to <span class="ui">Head to base</span>.
       </p>
     </div>
   </section>
@@ -650,7 +687,7 @@
         <tr><td>Type</td><td class="wrap-ok">Gardens, or places of interest</td></tr>
         <tr><td>Size</td><td class="wrap-ok">Major (half-day) or worth a stop</td></tr>
         <tr><td>Hide ones I've seen</td><td class="wrap-ok">On by default. Seen gardens stay on the map in grey, so you can still see where everything is.</td></tr>
-        <tr><td>Distance from where I'm starting</td><td class="wrap-ok">A slider, up to 100 km. Needs a starting point.</td></tr>
+        <tr><td class="wrap-ok">Distance from where I'm starting</td><td class="wrap-ok">A slider, up to 100 km. Needs a starting point.</td></tr>
         <tr><td>Prefer</td><td class="wrap-ok">Refreshments, toilets, plants for sale, accessible</td></tr>
         <tr><td>Rated at least</td><td class="wrap-ok">5, 7 or 9. This leaves out gardens you haven't rated yet.</td></tr>
         <tr><td>Must visit only</td><td class="wrap-ok">Only gardens you've marked <b>Yes</b> in Garden Edit</td></tr>

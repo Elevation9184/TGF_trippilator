@@ -356,7 +356,11 @@ function doneIds() {
 }
 
 function setDone(ids) {
-  state.done = { date: today(), ids };
+  // When each was ticked off, for the Completed group. Kept for today only.
+  const before = state.done?.date === today() ? state.done.at || {} : {};
+  const at = {};
+  for (const id of ids) at[id] = before[id] || new Date().toISOString();
+  state.done = { date: today(), ids, at };
   writeStore(STORE_DONE, state.done);
 }
 
@@ -622,12 +626,9 @@ function legItem(leg) {
   return drive;
 }
 
-/** "sent 2:32 pm", on a stop handed to Maps and not yet ticked off. */
-function sentMark(place) {
-  const at = handoff.sentToday(state.sent, today())[place.id];
-  if (!at) return "";
-  const clock = new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return `<span class="sent" title="Handed to Google Maps. Tick it off when you have been.">&#8599; sent ${escapeHtml(clock)}</span>`;
+/** "2:32 pm", in the phone's own clock format. */
+function clockTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 /** "Heading to · 1.2 km", or "You're here · 12 min", under a stop being followed. */
@@ -664,24 +665,40 @@ function stopItem(place, { done, seenButton }) {
       ${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}
     </button>
     ${buttons}
-    ${done ? "" : `<span class="stop-status">${followLine(place)}${sentMark(place)}</span>`}`;
+    ${done ? "" : `<span class="stop-status">${followLine(place)}</span>`}`;
   return stop;
+}
+
+/** A finished garden: compact, because by mid-afternoon this is the longest list. */
+function doneItem(place) {
+  const item = document.createElement("li");
+  item.className = "done-item";
+  const at = state.done?.date === today() ? state.done.at?.[place.id] : null;
+  const clock = at ? clockTime(at) : "";
+  item.innerHTML = `
+    <span class="done-mark" aria-hidden="true">&#10003;</span>
+    <button type="button" class="to" data-detail="${place.id}" title="Address and opening days">
+      ${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)}
+    </button>
+    ${clock ? `<span class="done-at">${escapeHtml(clock)}</span>` : ""}
+    <button type="button" class="link" data-visited="${place.id}" title="Not seen after all: back into the plan">undo</button>`;
+  return item;
 }
 
 function renderPlan(origin) {
   const panel = el("plan");
-  const list = el("plan-list");
   const summary = el("plan-summary");
   panel.hidden = state.mode !== "route";
   if (state.mode !== "route") return;
 
-  list.innerHTML = "";
+  const lists = { sent: el("list-sent"), plan: el("plan-list"), done: el("list-done") };
+  for (const list of Object.values(lists)) list.innerHTML = "";
   const base = baseOrigin();
   const fromHere = origin?.id === position.HERE_ID;
   const done = new Set(doneIds());
   // Gardens done today stay in the route, so it keeps its shape as the day goes.
-  // Re-planned from here, they are behind you: listed as done, not routed.
-  const doneToShow = [...done].map((id) => state.byId.get(id)).filter(Boolean);
+  // Re-planned from here, they are behind you, and the route starts afresh.
+  const doneToShow = doneIds().map((id) => state.byId.get(id)).filter(Boolean);
   const chosen = routable(
     (fromHere ? lockedPlaces() : [...lockedPlaces(), ...doneToShow]).filter(
       (place, index, all) => all.findIndex((other) => other.id === place.id) === index
@@ -694,11 +711,18 @@ function renderPlan(origin) {
     const toBase = state.here ? state.model.from(hereOrigin(), base) : null;
     el("head-base-label").textContent = toBase ? `Head to base · ${toBase.roadKm.toFixed(0)} km` : "Head to base";
   }
-  if (fromHere) doneToShow.forEach((place) => list.append(stopItem(place, { done: true, seenButton: false })));
-  if (!chosen.length) {
+
+  // Completed: in the order they were done, whatever the route.
+  doneToShow.forEach((place) => lists.done.append(doneItem(place)));
+  el("frame-done").hidden = !doneToShow.length;
+
+  const remainingPlaces = chosen.filter((place) => !done.has(place.id));
+  if (!remainingPlaces.length) {
     summary.textContent = "";
     el("navigate").hidden = true;
     el("plan-handoff-note").hidden = true;
+    el("frame-sent").hidden = true;
+    el("frame-plan").hidden = true;
     return;
   }
 
@@ -709,22 +733,37 @@ function renderPlan(origin) {
         engine.buildRoute(chosen, origin, state.model, false, finish))
     : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
 
-  const addStop = (place) => list.append(stopItem(place, { done: done.has(place.id), seenButton: true }));
-  if (route.startsAtFirstStop) {
-    // Begins at a garden: stop, then each drive leads to the next stop.
-    route.places.forEach((place, index) => {
-      if (index > 0) list.append(legItem(route.legs[index - 1]));
-      addStop(place);
-    });
-  } else {
-    route.legs.forEach((leg, index) => {
-      list.append(legItem(leg));
-      if (route.places[index]) addStop(route.places[index]);
-    });
-  }
-
   const remaining = route.places.filter((place) => !done.has(place.id));
   state.routeOrder = remaining.map((place) => place.id);
+
+  // The drive into each stop, from whatever came before it on the route.
+  const arrival = new Map();
+  route.places.forEach((place, index) => {
+    const leg = route.startsAtFirstStop ? (index > 0 ? route.legs[index - 1] : null) : route.legs[index];
+    if (leg) arrival.set(place.id, leg);
+  });
+  const homeLeg =
+    !route.startsAtFirstStop && route.legs.length > route.places.length ? route.legs[route.legs.length - 1] : null;
+
+  // The app plans; the phone navigates. What goes to Maps is worked out in
+  // handoff.js: the gardens Maps already has, topped up to ten from the plan.
+  const sent = handoff.sentToday(state.sent, today());
+  const batch = handoff.planHandoff(remaining, sent, finish);
+  const into = (list, place) => {
+    const leg = arrival.get(place.id);
+    if (leg) list.append(legItem(leg));
+    list.append(stopItem(place, { done: false, seenButton: true }));
+  };
+  batch.active.forEach((place) => into(lists.sent, place));
+  batch.waiting.forEach((place) => into(lists.plan, place));
+  if (homeLeg) (batch.waiting.length ? lists.plan : lists.sent).append(legItem(homeLeg));
+  el("frame-sent").hidden = !batch.active.length;
+  const built = batch.active.map((place) => sent[place.id]).sort().pop();
+  el("frame-sent").querySelector(".frame-head").textContent = built
+    ? `Sent to Google Maps · ${clockTime(built)}`
+    : "Sent to Google Maps";
+  el("frame-plan").hidden = !batch.waiting.length;
+
   const hours = (route.totalMinutes / 60).toFixed(1);
   summary.textContent =
     (fromHere ? "From where you are · " : "") +
@@ -736,39 +775,35 @@ function renderPlan(origin) {
   note.hidden = !el("auto-seen").checked || TEST_MODE || state.geoAllowed !== false;
   note.textContent = "Press Here once to let the day follow you and tick gardens off by itself.";
 
-  // The app plans; the phone navigates. Only what is left, in route order, from
-  // wherever the phone is: after three gardens that is not the base. A day too
-  // long for one link goes ten at a time, and ticking stops off as Seen moves on.
-  const batch = handoff.nextBatch(remaining, finish);
-  el("navigate").hidden = !batch;
-  el("plan-handoff-note").hidden = true;
-  if (!batch) return;
-  el("navigate").textContent = batch.more
-    ? `Open the next ${batch.last} stops in Google Maps`
-    : done.size ? "Open the rest in Google Maps" : "Open in Google Maps";
-
-  // Gardens already handed over and still not ticked off go again — which is
-  // right, since you have not been — but nobody should discover that in the car.
-  const gardens = [...batch.waypoints, batch.destination].filter((place) => state.byId.has(place.id));
-  const again = handoff.resendCount(gardens, handoff.sentToday(state.sent, today()));
+  // The button says exactly what a press does; the note says why, when it is not obvious.
+  el("navigate").hidden = false;
+  el("navigate").textContent = batch.label;
   const notes = [];
-  if (again) {
-    notes.push(
-      `${again} garden${again === 1 ? "" : "s"} from your last batch ${again === 1 ? "isn't" : "aren't"} ` +
-        "marked seen, so they go again — tick off any you have done."
-    );
+  if (batch.kind === "first" && batch.left) {
+    notes.push("Google Maps takes ten at a time. The rest follow as you tick these off.");
   }
-  if (batch.more) {
-    notes.push("Google Maps takes ten stops at a time. Mark them Seen as you go, and this sends the rest.");
+  if (batch.kind === "reopen" && batch.waiting.length) {
+    notes.push("Google Maps already has ten. Tick them off as you go, and the next ones can be added.");
+  }
+  if (batch.homeLeftOut) {
+    notes.push("Ten gardens fill Google Maps, so the drive home is left to Head to base.");
   }
   el("plan-handoff-note").hidden = !notes.length;
   el("plan-handoff-note").textContent = notes.join(" ");
 
   el("navigate").onclick = () => {
     openInMaps(batch);
-    state.sent = handoff.markSent(state.sent, gardens.map((place) => place.id), today());
-    writeStore(STORE_SENT, state.sent);
-    showToast(`${gardens.length} stop${gardens.length === 1 ? "" : "s"} sent to Google Maps. Tick them off as you go.`);
+    if (batch.kind !== "reopen") {
+      // Only what is new gets stamped: the ones Maps already had keep their time.
+      state.sent = handoff.markSent(state.sent, batch.adding.map((place) => place.id), today());
+      writeStore(STORE_SENT, state.sent);
+      const n = batch.adding.length;
+      showToast(
+        batch.kind === "first"
+          ? `${n} sent to Google Maps. Tick them off as you go.`
+          : `Added ${n} — Google Maps has a fresh route of ${batch.gardens.length}.`
+      );
+    }
     render();
   };
 }
@@ -1406,7 +1441,13 @@ function wire() {
     const target = event.target.closest("button");
     if (!target) return;
     if (target.dataset.add) togglePlan(target.dataset.add);
-    else if (target.dataset.remove) togglePlan(target.dataset.remove);
+    else if (target.dataset.remove) {
+      // Out of the day, so no longer "in Google Maps": the next press rebuilds
+      // the route without it, which is the only way to take a stop out of Maps.
+      state.sent = handoff.forgetSent(state.sent, [target.dataset.remove], today());
+      writeStore(STORE_SENT, state.sent);
+      togglePlan(target.dataset.remove);
+    }
     else if (target.dataset.visited) markVisited(target.dataset.visited, !visitOf(target.dataset.visited).visited);
     else if (target.dataset.detail) showStopDetail(target.dataset.detail);
   });
@@ -1480,6 +1521,9 @@ function wire() {
   });
 
   const clearPlan = () => {
+    // Starting the day's plan again starts Google Maps' record again too.
+    state.sent = null;
+    writeStore(STORE_SENT, null);
     state.pre.release([...state.pre.locked], criteriaMatches());
     savePlan();
     render();

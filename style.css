@@ -998,3 +998,42 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
   color: var(--green);
   font-weight: 600;
 }
+
+/* ------------------------------------------------- My day's three groups -- */
+
+/* In the order a day moves through them. Only the group Google Maps holds is
+   boxed, because it is the one that describes the car right now; the plan and
+   the completed list are plain lists under a small heading. */
+.frame { display: grid; gap: 0.25rem; margin-top: 0.7rem; }
+.frame-head {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.frame.is-sent {
+  padding: 0.55rem 0.65rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+}
+.frame.is-sent .frame-head { color: var(--green); }
+#navigate { margin-top: 0.7rem; justify-self: start; }
+
+.done-list { gap: 0.15rem; }
+.done-item { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.85rem; color: var(--muted); }
+.done-mark { color: var(--green); font-weight: 700; }
+.done-item .to {
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  flex: 1 1 auto;
+}
+.done-at { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.done-item .link { font-size: 0.78rem; }

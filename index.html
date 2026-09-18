@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260917-2125" />
+    <meta name="build" content="20260918-1435" />
   </head>
   <body>
     <header>
@@ -116,8 +116,8 @@
     </section>
 
     <section id="plan" class="plan" hidden>
+      <!-- The day's switches sit above all three groups, which each carry their own heading. -->
       <div class="plan-head">
-        <strong>Today's plan</strong>
         <label class="check">
           <input id="return-home" type="checkbox" checked />
           Return to base
@@ -141,10 +141,26 @@
         </button>
       </div>
       <p id="follow-note" class="note" hidden></p>
-      <ol id="plan-list" class="plan-list"></ol>
-      <p id="plan-summary" class="summary"></p>
-      <button id="navigate" type="button" class="primary" hidden>Open in Google Maps</button>
+
+      <!-- Three groups, in the order a day moves through them: what Google Maps
+           has now, what is still to send, and what is done. The button sits
+           between the first two because that is what it does: it moves gardens
+           from the plan up into Maps. -->
+      <div id="frame-sent" class="frame is-sent" hidden>
+        <h3 class="frame-head">Sent to Google Maps</h3>
+        <ol id="list-sent" class="plan-list"></ol>
+      </div>
+      <button id="navigate" type="button" class="primary" hidden>Send to Google Maps</button>
       <p id="plan-handoff-note" class="note" hidden></p>
+      <div id="frame-plan" class="frame">
+        <h3 class="frame-head">Today's plan</h3>
+        <ol id="plan-list" class="plan-list"></ol>
+      </div>
+      <p id="plan-summary" class="summary"></p>
+      <div id="frame-done" class="frame is-done" hidden>
+        <h3 class="frame-head">Completed</h3>
+        <ol id="list-done" class="plan-list done-list"></ol>
+      </div>
     </section>
 
     <div id="toast" class="toast" role="status" hidden></div>

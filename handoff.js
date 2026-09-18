@@ -77,7 +77,67 @@ export function markSent(store, ids, day, at = new Date()) {
   return { date: day, at: stamped };
 }
 
-/** How many of these stops went last time and are still not marked seen. */
-export function resendCount(places, sent) {
-  return places.filter((place) => sent[place.id]).length;
+/** The store with these stops forgotten: removed from the day, so never "sent". */
+export function forgetSent(store, ids, day) {
+  const kept = sentToday(store, day);
+  for (const id of ids) delete kept[id];
+  return { date: day, at: kept };
+}
+
+/** Destinations Google Maps takes in one link: nine stops and where it ends. */
+export const MAX_STOPS = MAX_WAYPOINTS + 1;
+
+/**
+ * What the Google Maps button does next, and with which gardens.
+ *
+ * My day holds the gardens still to do in two groups: those already handed to
+ * Maps and not yet seen (active), and those not sent yet (waiting). Maps takes
+ * ten at a time, so the button tops the active group back up to ten from the
+ * waiting ones as gardens are ticked off or removed. With no room, or nothing
+ * waiting, it reopens the same route rather than going dead: Maps gets closed,
+ * swiped away or killed by a phone call halfway round, and there has to be a
+ * way back.
+ *
+ * `remaining` is in the day's route order and the link keeps that order, so a
+ * top-up is one sensible drive rather than an old batch with new stops tacked
+ * on. `finish` is the base when the day returns to it; it counts as one of the
+ * ten, so it only goes in when nothing is waiting and a place is left for it.
+ */
+export function planHandoff(remaining, sent, finish = null, cap = MAX_STOPS) {
+  if (!remaining.length) return null;
+  const isSent = (place) => Boolean(sent[place.id]);
+  const active = remaining.filter(isSent);
+  const waiting = remaining.filter((place) => !isSent(place));
+  const adding = waiting.slice(0, Math.max(0, cap - active.length));
+  const chosen = new Set([...active, ...adding].map((place) => place.id));
+  const gardens = remaining.filter((place) => chosen.has(place.id));
+  const left = waiting.length - adding.length;
+  const kind = !active.length ? "first" : adding.length ? "add" : "reopen";
+
+  const home = Boolean(finish) && !left && gardens.length < cap;
+  const stops = home ? [...gardens, finish] : gardens;
+  return {
+    kind,
+    active,
+    waiting,
+    adding,
+    gardens,
+    left,
+    // Ten gardens fill the link, so a drive home has to wait for Head to base.
+    homeLeftOut: Boolean(finish) && !left && !home,
+    waypoints: stops.slice(0, -1),
+    destination: stops[stops.length - 1],
+    label: handoffLabel(kind, gardens.length, adding.length, left),
+  };
+}
+
+/** The button's words, which say exactly what a press will do. */
+export function handoffLabel(kind, gardens, adding, left) {
+  if (kind === "reopen") return "Open again in Google Maps";
+  if (kind === "first") {
+    if (left) return `Send first ${gardens} to Google Maps`;
+    return gardens === 1 ? "Send to Google Maps" : `Send all ${gardens} to Google Maps`;
+  }
+  if (!left) return adding === 1 ? "Add the last garden to Google Maps" : "Add remaining gardens to Google Maps";
+  return adding === 1 ? "Add next garden to Google Maps" : `Add next ${adding} gardens to Google Maps`;
 }
