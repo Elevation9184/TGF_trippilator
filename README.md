@@ -25,18 +25,22 @@ reporting a problem.
 - **Nearest** — the closest gardens to your base, to where you are, or to any
   garden, optionally ranked by your own ratings as well as distance.
 - **On the way** — what is worth collecting between two places, and what each
-  one adds to the drive.
+  one would add to the drive.
 - **Map** — every garden by its festival map number, with no signal needed.
   Tap to add a garden to your plan; press and hold for its details.
-- **My day** — the shortest order to visit everything in your plan, with
-  driving and visit times, checked against each garden's published opening
-  days.
+- **My day** — the tour itself: the shortest order to visit everything in
+  your plan, with driving and visit times, checked against each garden's
+  published opening days. The only screen that sends anything to Google Maps.
 - **Preselect** narrows what every tab shows: area, festival, opening day,
   facilities, rating. **Garden Edit** holds your own ratings, notes and visits.
 
-Driving is handed to Google Maps. It takes ten stops at a time, so a longer
-day is sent in batches: mark gardens *Seen* as you go and the button sends the
-rest.
+Nearest, On the way and the Map are three ways of finding gardens; whatever
+you pick in any of them joins one plan, and My day is that plan.
+
+Driving is handed to Google Maps, which takes ten stops at a time. My day
+shows three groups — *Sent to Google Maps*, *Today's plan* and *Completed* —
+and the button between the first two tops Maps back up as gardens are ticked
+off, or reopens the same route if Maps has been closed.
 
 ## Your data stays on your phone
 
