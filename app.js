@@ -806,10 +806,11 @@ function renderPlan(origin) {
 
   el("navigate").onclick = () => {
     openInMaps(batch);
+    // The record becomes exactly this link, whatever kind of press it was: that
+    // is what Google Maps now holds. Gardens already in it keep their time.
+    state.sent = handoff.markSent(state.sent, batch.gardens.map((place) => place.id), today());
+    writeStore(STORE_SENT, state.sent);
     if (batch.kind !== "reopen") {
-      // Only what is new gets stamped: the ones Maps already had keep their time.
-      state.sent = handoff.markSent(state.sent, batch.adding.map((place) => place.id), today());
-      writeStore(STORE_SENT, state.sent);
       const n = batch.adding.length;
       showToast(
         batch.kind === "first"
@@ -1583,7 +1584,8 @@ function planSignature() {
 function applyFix(fix) {
   const stops = followStops();
   const sent = handoff.sentToday(state.sent, today());
-  const inMaps = stops.filter((place) => sent[place.id]).map((place) => place.id);
+  const byRoute = (state.routeOrder || []).filter((id) => sent[id]);
+  const inMaps = byRoute.slice(0, handoff.MAX_STOPS);
   const { state: next, events } = nearby.track(state.track, {
     fix,
     stops,

@@ -70,10 +70,18 @@ export function sentToday(store, day) {
   return store && store.date === day ? { ...store.at } : {};
 }
 
-/** The store with these stops stamped as sent, dropping any earlier day's. */
+/**
+ * The record after a link is built: exactly the gardens in that link, since
+ * that is now what Google Maps holds. Ones already there keep their time; the
+ * rest are stamped now. Anything from an earlier link is dropped — it is not in
+ * the route Maps is driving, so a garden brought back later (undo, un-ticking,
+ * choosing it again) belongs in the plan, not among what Maps has. Keeping
+ * every garden ever sent is how the Sent group once reached seventeen.
+ */
 export function markSent(store, ids, day, at = new Date()) {
-  const stamped = sentToday(store, day);
-  for (const id of ids) stamped[id] = at.toISOString();
+  const before = sentToday(store, day);
+  const stamped = {};
+  for (const id of ids) stamped[id] = before[id] || at.toISOString();
   return { date: day, at: stamped };
 }
 
@@ -105,9 +113,13 @@ export const MAX_STOPS = MAX_WAYPOINTS + 1;
  */
 export function planHandoff(remaining, sent, finish = null, cap = MAX_STOPS) {
   if (!remaining.length) return null;
-  const isSent = (place) => Boolean(sent[place.id]);
-  const active = remaining.filter(isSent);
-  const waiting = remaining.filter((place) => !isSent(place));
+  // What Maps holds, in route order — never more than a link can carry. The
+  // record keeps to that by itself now; the cap heals any record kept by an
+  // older build, where the group could grow past what Maps actually has.
+  const stamped = remaining.filter((place) => Boolean(sent[place.id]));
+  const active = stamped.slice(0, cap);
+  const held = new Set(active.map((place) => place.id));
+  const waiting = remaining.filter((place) => !held.has(place.id));
   const adding = waiting.slice(0, Math.max(0, cap - active.length));
   const chosen = new Set([...active, ...adding].map((place) => place.id));
   const gardens = remaining.filter((place) => chosen.has(place.id));
