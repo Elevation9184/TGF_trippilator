@@ -85,6 +85,15 @@ export function markSent(store, ids, day, at = new Date()) {
   return { date: day, at: stamped };
 }
 
+/**
+ * The order Google Maps was given them in. `markSent` records the link's
+ * gardens in the link's own order, and that order is kept: re-solving it later
+ * would reorder the list Maps is actually driving.
+ */
+export function sentOrder(store, day) {
+  return Object.keys(sentToday(store, day));
+}
+
 /** The store with these stops forgotten: removed from the day, so never "sent". */
 export function forgetSent(store, ids, day) {
   const kept = sentToday(store, day);

@@ -737,10 +737,13 @@ function renderPlan(origin) {
   // the route Maps is driving. Until anything is sent the whole day is solved
   // together, done gardens included, so ticking one off never reshuffles it.
   const sent = handoff.sentToday(state.sent, today());
-  const committedIds = remainingPlaces.filter((place) => sent[place.id]).map((place) => place.id);
-  const committed = committedIds.length ? chosen.filter((place) => sent[place.id] || done.has(place.id)) : [];
+  const inPlan = new Map(chosen.map((place) => [place.id, place]));
+  // In Maps, in the order Maps was given them; done ones in the order visited.
+  const committedIds = handoff.sentOrder(state.sent, today()).filter((id) => inPlan.has(id) && !done.has(id));
+  const visited = fromHere ? [] : doneIds().filter((id) => inPlan.has(id));
+  const committed = committedIds.length ? [...visited, ...committedIds].map((id) => inPlan.get(id)) : [];
   const rest = committedIds.length ? chosen.filter((place) => !sent[place.id] && !done.has(place.id)) : chosen;
-  const committedKey = [...committedIds].sort().join(",");
+  const committedKey = `${visited.join(",")}|${committedIds.join(",")}`;
   const route = origin
     ? memoRoute("day", chosen, origin, [returnHome, base?.lat, base?.lon, committedKey], () =>
         engine.buildCommittedRoute(committed, rest, origin, state.model, finish))

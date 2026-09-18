@@ -562,34 +562,46 @@ export function findPlaces(places, query) {
 }
 
 /**
- * A day with some stops committed: handed to Google Maps, so the car will do
- * those next whatever else changes. They come first, in their own best order,
- * and the rest is solved onward from the last of them.
+ * A day with some stops committed: already visited today, or handed to Google
+ * Maps, so their order is settled. They are kept exactly in the order given —
+ * visited ones in the order they were visited, then the ones in Maps in the
+ * order Maps was given them — and only the rest is solved, onward from the last.
  *
- * Solving everything together is shorter on paper but wrong in the car: add or
- * remove one garden after sending and the whole day re-optimises, scattering
- * the sent gardens through it, so the plan stops agreeing with the route Maps
- * is actually driving. Field-app only; the Python planner has no Google Maps.
+ * Solving everything together is shorter on paper but wrong in the car. Add or
+ * remove one garden after sending and the whole day re-optimises, scattering the
+ * sent gardens through it; and re-solving the committed ones among themselves
+ * after a top-up reorders the very list Maps is driving, and routes you back
+ * through gardens already done. Either way the plan stops agreeing with the car.
+ * Field-app only; the Python planner has no Google Maps.
  */
 export function buildCommittedRoute(committed, rest, origin, model, finish = null) {
-  const solve = (stops, from, end) =>
-    from ? buildRoute(stops, from, model, false, end) : routeFromBestFirstStop(stops, model);
-  if (!committed.length) return solve(rest, origin, finish);
-  if (!rest.length) return solve(committed, origin, finish);
-  const head = solve(committed, origin, null);
-  const tail = buildRoute(rest, head.places[head.places.length - 1], model, false, finish);
-  const places = [...head.places, ...tail.places];
-  const legs = [...head.legs, ...tail.legs];
-  const travelMinutes = legs.reduce((sum, leg) => sum + leg.estimate.minutes, 0);
+  const leg = (a, b) => ({ from: a.name, to: b.name, estimate: model.from(a, b) });
+  if (!committed.length) {
+    return origin ? buildRoute(rest, origin, model, false, finish) : routeFromBestFirstStop(rest, model);
+  }
+  const head = [...new Map(committed.map((place) => [place.id, place])).values()];
+  const legs = [];
+  let from = origin;
+  for (const place of head) {
+    if (from) legs.push(leg(from, place));
+    from = place;
+  }
+  const last = head[head.length - 1];
+  let tail = { places: [], legs: finish ? [leg(last, finish)] : [], method: "exact" };
+  if (rest.length) tail = buildRoute(rest, last, model, false, finish);
+  const places = [...head, ...tail.places];
+  legs.push(...tail.legs);
+  const travelMinutes = legs.reduce((sum, item) => sum + item.estimate.minutes, 0);
   const visitMinutes = places.reduce((sum, p) => sum + (p.minutes ?? DEFAULT_VISIT_MINUTES), 0);
   return {
     places,
     legs,
-    startsAtFirstStop: Boolean(head.startsAtFirstStop),
+    startsAtFirstStop: !origin,
     returnsToStart: false,
     finish,
-    method: head.method !== "exact" ? head.method : tail.method,
-    totalKm: legs.reduce((sum, leg) => sum + leg.estimate.roadKm, 0),
+    // The committed order is given, not searched for; only the rest can be approximate.
+    method: tail.method,
+    totalKm: legs.reduce((sum, item) => sum + item.estimate.roadKm, 0),
     travelMinutes,
     visitMinutes,
     totalMinutes: travelMinutes + visitMinutes,
