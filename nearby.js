@@ -135,14 +135,28 @@ export function track(state, { fix, stops, now = new Date(), autoSeen = true, ah
   // actually going to — not whichever garden happens to be nearest. One just
   // ticked off on this fix is behind you, so it is skipped.
   const nearest = order[0];
-  const seen = new Set(events.filter((e) => e.kind === "seen").map((e) => e.place.id));
-  const nextId = ahead?.find((id) => known.has(id) && !seen.has(id));
-  const aimed = ahead?.length ? order.find((row) => row.place.id === nextId) : nearest;
-  next.headingId = !next.atId && aimed && aimed.metres <= APPROACH_KM * 1000 ? aimed.place.id : null;
-  next.headingMetres = next.headingId ? Math.round(aimed.metres) : null;
+  const seen = events.filter((e) => e.kind === "seen").map((e) => e.place.id);
+  Object.assign(next, aimAt({ fix, stops, ahead, atId: next.atId, skip: seen }));
   // How often to poll follows the nearest stop of all, since any can be arrived at.
   next.metres = nearest ? Math.round(nearest.metres) : null;
   return { state: next, events };
+}
+
+/**
+ * Which garden to mark as "heading to" from this fix: the first of `ahead` still
+ * to do, when it is within range — or, with no order to follow, the nearest.
+ * Separate from `track` so the page can recompute it once a garden it has just
+ * ticked off is out of the running, without judging the fix a second time.
+ */
+export function aimAt({ fix, stops, ahead = null, atId = null, skip = [] }) {
+  if (atId) return { headingId: null, headingMetres: null };
+  const order = ranked(fix, stops);
+  const known = new Set(order.map((row) => row.place.id));
+  const skipped = new Set(skip);
+  const nextId = ahead?.find((id) => known.has(id) && !skipped.has(id));
+  const aimed = ahead?.length ? order.find((row) => row.place.id === nextId) : order[0];
+  const inRange = Boolean(aimed) && aimed.metres <= APPROACH_KM * 1000;
+  return { headingId: inRange ? aimed.place.id : null, headingMetres: inRange ? Math.round(aimed.metres) : null };
 }
 
 /** How the stop should look: a light border while you are heading to or at it. */

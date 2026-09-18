@@ -94,6 +94,31 @@ export function sentOrder(store, day) {
   return Object.keys(sentToday(store, day));
 }
 
+/**
+ * The gardens in Maps still to visit, in the order to head for them.
+ *
+ * Normally that is simply Maps' order. But a driver may jump ahead — skip four
+ * because of timing and pull in at the fifth — and then "next" is the sixth,
+ * not the first one skipped. So it continues from the furthest garden visited
+ * in this batch; the skipped ones follow at the end, never dropped, for the
+ * driver to go back to, tick off or remove. Nothing here assumes why they were
+ * skipped. `link` is the batch in Maps' order, `done` what has been seen today,
+ * and `remaining` the gardens still in the plan and not seen.
+ */
+export function aheadInMaps(link, done, remaining) {
+  const seen = new Set(done);
+  const open = new Set(remaining);
+  let furthest = -1;
+  link.forEach((id, index) => {
+    if (seen.has(id)) furthest = index;
+  });
+  const still = link.map((id, index) => ({ id, index })).filter(({ id }) => open.has(id) && !seen.has(id));
+  return [
+    ...still.filter(({ index }) => index > furthest).map(({ id }) => id),
+    ...still.filter(({ index }) => index < furthest).map(({ id }) => id),
+  ];
+}
+
 /** The store with these stops forgotten: removed from the day, so never "sent". */
 export function forgetSent(store, ids, day) {
   const kept = sentToday(store, day);

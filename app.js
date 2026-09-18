@@ -1583,25 +1583,44 @@ function planSignature() {
   return nearby.planSignature(state.pre.locked, today());
 }
 
+/**
+ * What to head for next, and what Google Maps holds, from the day as it stands.
+ * In Maps: its order, continuing from the furthest garden visited, so jumping
+ * ahead is followed and skipped ones wait at the end (handoff.aheadInMaps).
+ * Nothing in Maps: the day's own order.
+ */
+function aheadNow(stops) {
+  const open = new Set(stops.map((place) => place.id));
+  const link = handoff.sentOrder(state.sent, today());
+  const inMaps = link.filter((id) => open.has(id)).slice(0, handoff.MAX_STOPS);
+  if (!inMaps.length) {
+    const byRoute = (state.routeOrder || []).filter((id) => open.has(id));
+    return { ahead: byRoute.length ? byRoute : [...open], inMaps };
+  }
+  return { ahead: handoff.aheadInMaps(link, doneIds(), inMaps), inMaps };
+}
+
 /** One position, from wherever it came, put through the rules. */
 function applyFix(fix) {
   const stops = followStops();
-  const sent = handoff.sentToday(state.sent, today());
-  const byRoute = (state.routeOrder || []).filter((id) => sent[id]);
-  const inMaps = byRoute.slice(0, handoff.MAX_STOPS);
+  const { ahead, inMaps } = aheadNow(stops);
   const { state: next, events } = nearby.track(state.track, {
     fix,
     stops,
     now: followNow(),
     autoSeen: autoSeenOn(),
-    // What comes next: Google Maps' gardens in its order while it holds any,
-    // otherwise the day's own order, so the border always matches the plan.
-    ahead: inMaps.length ? inMaps : state.routeOrder || [],
+    ahead,
     inMaps,
   });
   state.track = next;
   writeStore(STORE_TRACK, next);
   for (const event of events) followEvent(event);
+  // A garden just ticked off moves "next" on, so aim again from the day as it now is.
+  if (events.some((event) => event.kind === "seen")) {
+    const left = followStops();
+    Object.assign(state.track, nearby.aimAt({ fix, stops: left, ahead: aheadNow(left).ahead, atId: state.track.atId }));
+    writeStore(STORE_TRACK, state.track);
+  }
   render();
 }
 
@@ -1749,11 +1768,11 @@ function showStopDetail(id) {
 
 /* ------------------------------------------------------- the test drive -- */
 
-/** The stop a test drive is working on: the next one in the drawn route. */
+/** The stop a test drive is working on: the same "next" the orange border shows. */
 function testTarget() {
   const stops = followStops();
-  const byRoute = (state.routeOrder || []).map((id) => stops.find((place) => place.id === id)).filter(Boolean);
-  return byRoute[0] || stops[0] || null;
+  const next = aheadNow(stops).ahead[0];
+  return stops.find((place) => place.id === next) || stops[0] || null;
 }
 
 /** One press: heading to it, arriving, staying long enough, then driving on. */
