@@ -905,6 +905,8 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
 .stop-status { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; }
 .stop .follow { font-size: 0.75rem; color: var(--muted); }
 .stop .sent { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Passed over, not dismissed: quiet, so it informs without nagging. */
+.stop .skipped { font-size: 0.75rem; color: var(--muted); font-style: italic; }
 .stop .follow.is-heading { color: #a35c00; font-weight: 600; }
 .stop .follow.is-here { color: #216c41; font-weight: 600; }
 @media (prefers-color-scheme: dark) {

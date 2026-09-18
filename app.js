@@ -649,7 +649,7 @@ function followLine(place) {
   return "";
 }
 
-function stopItem(place, { done, seenButton }) {
+function stopItem(place, { done, seenButton, note = "" }) {
   const stop = document.createElement("li");
   const look = done ? "" : nearby.highlightOf(state.track, place.id);
   stop.className = done ? "stop is-done" : `stop${look ? ` is-${look}` : ""}`;
@@ -666,7 +666,7 @@ function stopItem(place, { done, seenButton }) {
       ${escapeHtml(engine.mapLabel(place))} ${escapeHtml(place.name)} ${done ? "" : openingTag(place, checkDay())}
     </button>
     ${buttons}
-    ${done ? "" : `<span class="stop-status">${followLine(place)}</span>`}`;
+    ${done ? "" : `<span class="stop-status">${followLine(place)}${note ? `<span class="skipped">${escapeHtml(note)}</span>` : ""}</span>`}`;
   return stop;
 }
 
@@ -738,12 +738,15 @@ function renderPlan(origin) {
   // together, done gardens included, so ticking one off never reshuffles it.
   const sent = handoff.sentToday(state.sent, today());
   const inPlan = new Map(chosen.map((place) => [place.id, place]));
-  // In Maps, in the order Maps was given them; done ones in the order visited.
-  const committedIds = handoff.sentOrder(state.sent, today()).filter((id) => inPlan.has(id) && !done.has(id));
-  const visited = fromHere ? [] : doneIds().filter((id) => inPlan.has(id));
-  const committed = committedIds.length ? [...visited, ...committedIds].map((id) => inPlan.get(id)) : [];
-  const rest = committedIds.length ? chosen.filter((place) => !sent[place.id] && !done.has(place.id)) : chosen;
-  const committedKey = `${visited.join(",")}|${committedIds.join(",")}`;
+  // The batch as the day planned it, gardens visited within it kept in their
+  // places so a skip still shows. A garden neither in Maps nor visited (one
+  // undone since) is not part of it, and rejoins the plan in its best place.
+  const frame = handoff.sentOrder(state.sent, today()).filter((id) => inPlan.has(id) && (sent[id] || done.has(id)));
+  const inMapsIds = frame.filter((id) => sent[id] && !done.has(id));
+  const earlier = fromHere ? [] : doneIds().filter((id) => inPlan.has(id) && !frame.includes(id));
+  const committed = inMapsIds.length ? [...earlier, ...frame].map((id) => inPlan.get(id)) : [];
+  const rest = inMapsIds.length ? chosen.filter((place) => !frame.includes(place.id) && !done.has(place.id)) : chosen;
+  const committedKey = `${earlier.join(",")}|${frame.join(",")}`;
   const route = origin
     ? memoRoute("day", chosen, origin, [returnHome, base?.lat, base?.lon, committedKey], () =>
         engine.buildCommittedRoute(committed, rest, origin, state.model, finish))
@@ -752,6 +755,8 @@ function renderPlan(origin) {
 
   const remaining = route.places.filter((place) => !done.has(place.id));
   state.routeOrder = remaining.map((place) => place.id);
+  // The day's order with visited gardens in their places, for skips and "next".
+  state.routeAll = route.places.map((place) => place.id);
 
   // The drive into each stop, from whatever came before it on the route.
   const arrival = new Map();
@@ -765,13 +770,30 @@ function renderPlan(origin) {
   // The app plans; the phone navigates. What goes to Maps is worked out in
   // handoff.js: the gardens Maps already has, topped up to ten from the plan.
   const batch = handoff.planHandoff(remaining, sent, finish);
-  const into = (list, place) => {
+
+  // Skipped: passed over for a garden later in the order. A label only; the
+  // driver decides what happens to them. Once a link has been built since,
+  // Google Maps has them last, and the label says so.
+  const visitedToday = doneIds();
+  const skipped = new Set(
+    inMapsIds.length
+      ? handoff.skippedIn(frame, visitedToday, inMapsIds)
+      : handoff.skippedIn(state.routeAll, visitedToday, state.routeOrder)
+  );
+  const link = handoff.linkOrder(state.sent, today());
+  const lastInMaps = (id) => {
+    const at = link.indexOf(id);
+    return at >= 0 && batch.active.every((place) => skipped.has(place.id) || link.indexOf(place.id) < at);
+  };
+  const noteFor = (place, inMaps) =>
+    !skipped.has(place.id) ? "" : inMaps && lastInMaps(place.id) ? "skipped · last in Google Maps" : "skipped";
+  const into = (list, place, inMaps) => {
     const leg = arrival.get(place.id);
     if (leg) list.append(legItem(leg));
-    list.append(stopItem(place, { done: false, seenButton: true }));
+    list.append(stopItem(place, { done: false, seenButton: true, note: noteFor(place, inMaps) }));
   };
-  batch.active.forEach((place) => into(lists.sent, place));
-  batch.waiting.forEach((place) => into(lists.plan, place));
+  batch.active.forEach((place) => into(lists.sent, place, true));
+  batch.waiting.forEach((place) => into(lists.plan, place, false));
   if (homeLeg) (batch.waiting.length ? lists.plan : lists.sent).append(legItem(homeLeg));
   el("frame-sent").hidden = !batch.active.length;
   const built = batch.active.map((place) => sent[place.id]).sort().pop();
@@ -808,10 +830,16 @@ function renderPlan(origin) {
   el("plan-handoff-note").textContent = notes.join(" ");
 
   el("navigate").onclick = () => {
-    openInMaps(batch);
+    // Maps cannot start partway through a list, so the link goes in the order
+    // the driver is heading: onward from the furthest garden visited, skipped
+    // ones last. The Sent group keeps the batch as planned, skips in place.
+    const visited = doneIds();
+    const planned = handoff.frameFor(state.routeAll, batch.gardens.map((place) => place.id), visited);
+    const link = handoff.orderedLink(batch, planned, visited);
+    openInMaps({ ...batch, waypoints: link.waypoints, destination: link.destination });
     // The record becomes exactly this link, whatever kind of press it was: that
     // is what Google Maps now holds. Gardens already in it keep their time.
-    state.sent = handoff.markSent(state.sent, batch.gardens.map((place) => place.id), today());
+    state.sent = handoff.markSent(state.sent, link.ids, today(), new Date(), planned);
     writeStore(STORE_SENT, state.sent);
     if (batch.kind !== "reopen") {
       const n = batch.adding.length;
@@ -1591,13 +1619,15 @@ function planSignature() {
  */
 function aheadNow(stops) {
   const open = new Set(stops.map((place) => place.id));
-  const link = handoff.sentOrder(state.sent, today());
-  const inMaps = link.filter((id) => open.has(id)).slice(0, handoff.MAX_STOPS);
-  if (!inMaps.length) {
-    const byRoute = (state.routeOrder || []).filter((id) => open.has(id));
-    return { ahead: byRoute.length ? byRoute : [...open], inMaps };
-  }
-  return { ahead: handoff.aheadInMaps(link, doneIds(), inMaps), inMaps };
+  const sent = handoff.sentToday(state.sent, today());
+  const visited = doneIds();
+  const frame = handoff.sentOrder(state.sent, today()).filter((id) => sent[id] || visited.includes(id));
+  const inMaps = frame.filter((id) => open.has(id) && sent[id]).slice(0, handoff.MAX_STOPS);
+  if (inMaps.length) return { ahead: handoff.aheadInMaps(frame, visited, inMaps), inMaps };
+  // Nothing in Maps: the day's own order, carrying on from the furthest garden
+  // visited in it, just as within a batch.
+  const ahead = handoff.aheadInMaps(state.routeAll || [], visited, [...open]);
+  return { ahead: ahead.length ? ahead : [...open], inMaps };
 }
 
 /** One position, from wherever it came, put through the rules. */

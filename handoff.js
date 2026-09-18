@@ -78,20 +78,75 @@ export function sentToday(store, day) {
  * choosing it again) belongs in the plan, not among what Maps has. Keeping
  * every garden ever sent is how the Sent group once reached seventeen.
  */
-export function markSent(store, ids, day, at = new Date()) {
+export function markSent(store, ids, day, at = new Date(), order = ids) {
   const before = sentToday(store, day);
   const stamped = {};
   for (const id of ids) stamped[id] = before[id] || at.toISOString();
-  return { date: day, at: stamped };
+  // `ids` is the order Maps was given; `order` is the batch as the day planned
+  // it, gardens already visited included where they fell, so a skip can still
+  // be recognised afterwards. The two differ only when something was skipped.
+  return { date: day, at: stamped, order: [...order], link: [...ids] };
 }
 
 /**
- * The order Google Maps was given them in. `markSent` records the link's
- * gardens in the link's own order, and that order is kept: re-solving it later
- * would reorder the list Maps is actually driving.
+ * The batch as the day planned it: the order the Sent group is shown in, with
+ * gardens visited before it was sent still in their places. It is kept, never
+ * re-solved: re-solving would reorder the list Maps is actually driving.
+ * Records from older builds hold only the stamps, in link order.
  */
 export function sentOrder(store, day) {
-  return Object.keys(sentToday(store, day));
+  if (!store || store.date !== day) return [];
+  return store.order ? [...store.order] : Object.keys(store.at);
+}
+
+/** The order Google Maps was actually given them in. */
+export function linkOrder(store, day) {
+  if (!store || store.date !== day) return [];
+  return store.link ? [...store.link] : Object.keys(store.at);
+}
+
+/**
+ * Gardens passed over: still to do, but with a garden later in `order`
+ * already visited. Only ever a label and a place in the queue — never taken
+ * as seen, never removed; why they were skipped is the driver's business.
+ */
+export function skippedIn(order, done, remaining) {
+  const seen = new Set(done);
+  const open = new Set(remaining);
+  let furthest = -1;
+  order.forEach((id, index) => {
+    if (seen.has(id)) furthest = index;
+  });
+  return order.filter((id, index) => index < furthest && open.has(id) && !seen.has(id));
+}
+
+/**
+ * The stretch of the day a batch covers, as the day planned it: from its first
+ * garden to its last, keeping gardens already visited in between so a skip
+ * inside it still shows. `route` is the day's order, visited gardens included.
+ */
+export function frameFor(route, batch, done) {
+  const inBatch = new Set(batch);
+  const seen = new Set(done);
+  const positions = route.map((id, index) => (inBatch.has(id) ? index : -1)).filter((index) => index >= 0);
+  if (!positions.length) return [...batch];
+  const slice = route.slice(positions[0], positions[positions.length - 1] + 1);
+  return slice.filter((id) => inBatch.has(id) || seen.has(id));
+}
+
+/**
+ * The link itself. Google Maps cannot be told to start partway through a list:
+ * whatever comes first, it drives to first. So a batch goes in the order the
+ * driver is actually heading — onward from the furthest garden visited, the
+ * skipped ones at the end, where Maps offers them last rather than turning the
+ * car round — and home, if it fits, after all of them.
+ */
+export function orderedLink(batch, frame, done) {
+  const byId = new Map(batch.gardens.map((place) => [place.id, place]));
+  const ids = aheadInMaps(frame, done, [...byId.keys()]);
+  const gardens = ids.map((id) => byId.get(id));
+  const stops = batch.home ? [...gardens, batch.finish] : gardens;
+  return { ids, waypoints: stops.slice(0, -1), destination: stops[stops.length - 1] };
 }
 
 /**
@@ -122,8 +177,14 @@ export function aheadInMaps(link, done, remaining) {
 /** The store with these stops forgotten: removed from the day, so never "sent". */
 export function forgetSent(store, ids, day) {
   const kept = sentToday(store, day);
+  const gone = new Set(ids);
   for (const id of ids) delete kept[id];
-  return { date: day, at: kept };
+  return {
+    date: day,
+    at: kept,
+    order: sentOrder(store, day).filter((id) => !gone.has(id)),
+    link: linkOrder(store, day).filter((id) => !gone.has(id)),
+  };
 }
 
 /** Destinations Google Maps takes in one link: nine stops and where it ends. */
@@ -169,6 +230,8 @@ export function planHandoff(remaining, sent, finish = null, cap = MAX_STOPS) {
     adding,
     gardens,
     left,
+    home,
+    finish,
     // Ten gardens fill the link, so a drive home has to wait for Head to base.
     homeLeftOut: Boolean(finish) && !left && !home,
     waypoints: stops.slice(0, -1),
