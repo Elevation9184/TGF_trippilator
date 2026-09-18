@@ -1591,8 +1591,10 @@ function applyFix(fix) {
     stops,
     now: followNow(),
     autoSeen: autoSeenOn(),
-    // "Heading to" follows what Google Maps is driving, once it is driving anything.
-    prefer: inMaps.length ? new Set(inMaps) : null,
+    // What comes next: Google Maps' gardens in its order while it holds any,
+    // otherwise the day's own order, so the border always matches the plan.
+    ahead: inMaps.length ? inMaps : state.routeOrder || [],
+    inMaps,
   });
   state.track = next;
   writeStore(STORE_TRACK, next);

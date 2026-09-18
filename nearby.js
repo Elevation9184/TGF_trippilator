@@ -66,7 +66,14 @@ function ranked(fix, stops) {
  * `autoSeen: false` still tracks and highlights, but never reports "seen":
  * undoing an automatic tick turns it off until the plan or the day changes.
  */
-export function track(state, { fix, stops, now = new Date(), autoSeen = true, prefer = null }) {
+export function track(state, { fix, stops, now = new Date(), autoSeen = true, ahead = null, inMaps = null }) {
+  // `ahead`: the gardens still to come, in the order they will be driven —
+  // Google Maps' order while it holds any, the day's order otherwise. It
+  // decides which garden is "next". `inMaps` is what Maps actually holds, which
+  // settles which of two neighbours you are at when only one of them is in it;
+  // without it, `ahead` is taken to be what Maps holds.
+  const inMapsIds = inMaps ?? ahead;
+  const prefer = inMapsIds?.length ? new Set(inMapsIds) : null;
   const next = { ...state };
   const events = [];
   const order = ranked(fix, stops);
@@ -81,7 +88,17 @@ export function track(state, { fix, stops, now = new Date(), autoSeen = true, pr
 
   if (next.atId) {
     const here = order.find((row) => row.place.id === next.atId);
-    if (here && here.metres > LEAVE_METRES) {
+    const left = here && here.metres > LEAVE_METRES;
+    // Or moved on to another garden close by. Leaving is judged at 300 m so a
+    // wobbling fix does not flicker, but Highlands Park has four gardens within
+    // 170 m of each other: without this you stay "at" the first all afternoon,
+    // and when you drive off it is the first that gets the credit for both.
+    // Moving means being inside the other's ring and clearly nearer to it.
+    const other = order[0];
+    const moved =
+      here && !left && crisp && other && other.place.id !== next.atId &&
+      other.metres <= ARRIVE_METRES && here.metres - other.metres >= AMBIGUOUS_MARGIN_METRES;
+    if (left || moved) {
       const minutes = (now - new Date(next.since)) / 60000;
       events.push({
         kind: minutes >= DWELL_MINUTES && autoSeen ? "seen" : "passed",
@@ -112,13 +129,15 @@ export function track(state, { fix, stops, now = new Date(), autoSeen = true, pr
     }
   }
 
-  // Heading to: the nearest stop within range, unless you are already at one.
-  // `prefer`, when given, narrows it to the gardens Google Maps holds: the car
-  // is driving Maps' route, and a plan garden it happens to pass on the way is
-  // not where it is going. Arriving is still judged against every stop above,
-  // so pulling in somewhere unplanned is still noticed.
+  // Heading to: within range and not already at a garden. Arriving is judged
+  // against every stop above, so pulling in somewhere unplanned is still noticed.
+  // "Heading to" is the next garden in that order — the one the car is
+  // actually going to — not whichever garden happens to be nearest. One just
+  // ticked off on this fix is behind you, so it is skipped.
   const nearest = order[0];
-  const aimed = prefer?.size ? order.find((row) => prefer.has(row.place.id)) : nearest;
+  const seen = new Set(events.filter((e) => e.kind === "seen").map((e) => e.place.id));
+  const nextId = ahead?.find((id) => known.has(id) && !seen.has(id));
+  const aimed = ahead?.length ? order.find((row) => row.place.id === nextId) : nearest;
   next.headingId = !next.atId && aimed && aimed.metres <= APPROACH_KM * 1000 ? aimed.place.id : null;
   next.headingMetres = next.headingId ? Math.round(aimed.metres) : null;
   // How often to poll follows the nearest stop of all, since any can be arrived at.
