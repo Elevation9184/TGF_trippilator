@@ -37,6 +37,13 @@ reporting a problem.
 Nearest, On the way and the Map are three ways of finding gardens; whatever
 you pick in any of them joins one plan, and My day is that plan.
 
+**Friends' houses** can join a day too. Add one with *+ Friend* on the Map or
+*+ Add a friend* in Preselect: initials, an optional name and the address. It
+shows as a rose circle with the initials, is added by a tap like a garden,
+routes with an hour's visit (changeable), and can be where the day starts.
+Friends never appear in Nearest or On the way, and are edited or deleted from
+their popup, their My day details or Preselect.
+
 Driving is handed to Google Maps, which takes ten stops at a time. My day
 shows three groups — *Sent to Google Maps*, *Today's plan* and *Completed* —
 and the button between the first two tops Maps back up as gardens are ticked
@@ -44,15 +51,17 @@ off, or reopens the same route if Maps has been closed.
 
 ## Your data stays on your phone
 
-Your base, ratings, notes, visits and plan are kept in this browser on this
-device. Nothing is uploaded, and nobody else's copy can see them. Clearing
-Chrome's site data removes them, so use **Export notes** in the footer to keep
-a backup or move them to another phone.
+Your base, friends' houses, ratings, notes, visits and plan are kept in this
+browser on this device. Nothing is uploaded, and nobody else's copy can see
+them. Clearing Chrome's site data removes them, so use **Export notes** in the
+footer to keep a backup or move them to another phone. The base and friends'
+houses are deliberately not in the export; add them again on a new phone.
 
 Two things ask a free public service from your phone, and only when you use
-them: finding your base by address asks OpenStreetMap's Nominatim, and
-measuring road distances from your base or from where you are asks the OSRM
-router. Neither is sent anywhere else.
+them: finding your base or a friend's house by address asks OpenStreetMap's
+Nominatim, and measuring road distances from those or from where you are asks
+the OSRM router. Neither is sent anywhere else. Google Maps is given map
+positions only, never a friend's name.
 
 ## Licence
 

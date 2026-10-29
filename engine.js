@@ -546,6 +546,8 @@ export function gardenNr(place) {
 
 /** Mirrors Place.map_label: one label per pin, Centuria winning where both exist. */
 export function mapLabel(place) {
+  // A friend's house, added on the phone: labelled by initials, letters only.
+  if (place.initials) return place.initials;
   if (place.centuriaNo != null) return `C${place.centuriaNo}`;
   return place.fringeNo != null ? `F${place.fringeNo}` : "";
 }

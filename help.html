@@ -25,6 +25,7 @@
     --green-lift: #e6efe7;
     --centuria: #7a3e9d;
     --fringe: #1f6f8b;
+    --friend: #a8436b;
     --amber: #a35c00;
     --amber-lift: #fbf1e2;
     --here: #216c41;
@@ -44,6 +45,7 @@
       --green-lift: #1b2a20;
       --centuria: #c79bea;
       --fringe: #79c6de;
+      --friend: #e58fb3;
       --amber: #e2a662;
       --amber-lift: #292014;
       --here: #83cba1;
@@ -63,6 +65,7 @@
     --green-lift: #1b2a20;
     --centuria: #c79bea;
     --fringe: #79c6de;
+    --friend: #e58fb3;
     --amber: #e2a662;
     --amber-lift: #292014;
     --here: #83cba1;
@@ -165,6 +168,7 @@
   }
   .num.c { color: var(--centuria); background: color-mix(in srgb, var(--centuria) 12%, transparent); }
   .num.f { color: var(--fringe); background: color-mix(in srgb, var(--fringe) 14%, transparent); }
+  .num.fr { color: var(--friend); background: color-mix(in srgb, var(--friend) 13%, transparent); }
 
   /* The day, as a numbered sequence (it genuinely is one) --------------- */
   .flow { display: grid; gap: 0.6rem; counter-reset: step; }
@@ -276,6 +280,7 @@
     <a href="#day">How a day runs</a>
     <a href="#pieces">How the pieces fit</a>
     <a href="#base">B and Here</a>
+    <a href="#friends">Friends</a>
     <a href="#nearest">Nearest</a>
     <a href="#ontheway">On the way</a>
     <a href="#map">Map</a>
@@ -306,7 +311,7 @@
           distances between them. After that it works in the back blocks with no coverage at all.</li>
       </ol>
       <p>
-        Everything you enter — your base, ratings, notes, the gardens you've seen — is kept in your own phone's browser.
+        Everything you enter — your base, friends' houses, ratings, notes, the gardens you've seen — is kept in your own phone's browser.
         None of it is uploaded, and nobody else's copy can see it.
       </p>
     </div>
@@ -440,6 +445,49 @@
     </div>
   </section>
 
+  <section id="friends">
+    <div class="section-head">
+      <span class="eyebrow">Calling in on someone</span>
+      <h2>Friends' houses</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Visiting someone while you're down there? Add their house and it joins a day like a garden does: on the map as
+        a rose circle with their initials, such as <span class="num fr">GK</span>, routed in My day, sent to Google
+        Maps, and ticked off when you've been.
+      </p>
+      <p>
+        Tap <span class="ui">+ Friend</span> on the Map, or <span class="ui">+ Add a friend</span> at the top of
+        Preselect's Gardens list. Give their initials (two or three letters, a different set for each friend), a name
+        if you like, and the address, then <span class="ui">Find</span> and <span class="ui">Save</span>. As with the
+        base, the map then shows where the address landed — tap the right spot if it's out, then
+        <span class="ui">Done</span>. The road distances to every garden are measured once, in the background.
+      </p>
+    </div>
+    <div class="scroll">
+      <table>
+        <tr><th>To</th><th>Do this</th></tr>
+        <tr><td>Add them to today</td><td class="wrap-ok">Tap their circle on the Map, or tick them in Preselect's <b>Friends</b> list</td></tr>
+        <tr><td>See their details</td><td class="wrap-ok">Press and hold the circle, or tap their name in My day</td></tr>
+        <tr><td>Change initials, name, address or visit length</td><td class="wrap-ok"><span class="ui">Edit</span> — in the popup, the My day details, or Preselect</td></tr>
+        <tr><td>Start the day from their place</td><td class="wrap-ok">Pick them in <b>Starting from</b></td></tr>
+        <tr><td>Delete them</td><td class="wrap-ok"><span class="ui">Edit</span> → <span class="ui">Delete</span>, pressed twice</td></tr>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        A visit is assumed to take an hour; choose anything from half an hour to three in the form. Friends never
+        appear in <b>Nearest</b> or <b>On the way</b>, and the filters never grey them out — those are for finding
+        gardens. Seeing a friend counts for today only, so they're there to call on again tomorrow.
+      </p>
+    </div>
+    <div class="note">
+      <span class="eyebrow">Privacy</span>
+      <p>Like your base, friends' names and addresses stay on this phone. They're not part of the published app, the
+        notes export or anything sent to the group. Google Maps gets only a map position, never the name.</p>
+    </div>
+  </section>
+
   <section id="nearest">
     <div class="section-head">
       <span class="eyebrow">Tab one</span>
@@ -522,6 +570,7 @@
         <tr><th>Gesture</th><th>Effect</th></tr>
         <tr><td>Press and hold a pin</td><td class="wrap-ok">Popup with both numbers, the name and the address</td></tr>
         <tr><td>Tap a pin</td><td class="wrap-ok">Add that garden to your plan, or take it out again</td></tr>
+        <tr><td>Tap a friend's circle</td><td class="wrap-ok">The same, for a <a href="#friends">friend's house</a>; hold it for their details and <span class="ui">Edit</span></td></tr>
         <tr><td>Tap empty map</td><td class="wrap-ok">Dismiss the popup, change nothing</td></tr>
         <tr><td>Drag / pinch</td><td class="wrap-ok">Move the map / zoom about your fingers</td></tr>
         <tr><td><span class="ui">Select area</span>, then drag</td><td class="wrap-ok">Set every garden inside the box the same way at once</td></tr>
@@ -809,6 +858,10 @@
       <p>
         Your ratings, notes and visits live in this browser on this phone, and nowhere else. That's what keeps them
         private, and it's also the risk: clearing Chrome's site data wipes them.
+      </p>
+      <p>
+        Your base and friends' houses aren't in the export either, deliberately. On a new phone, add them again: it
+        takes a minute each.
       </p>
       <p>
         <span class="ui">Export notes (CSV)</span> at the bottom of the page hands you a spreadsheet of all 81 gardens

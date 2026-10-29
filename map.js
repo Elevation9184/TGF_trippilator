@@ -44,6 +44,11 @@ function node(name, attributes = {}, text) {
   return element;
 }
 
+/** One id per marker: there is one base and one here, but any number of friends. */
+function markerId(marker) {
+  return marker.id ? `marker:${marker.kind}:${marker.id}` : `marker:${marker.kind}`;
+}
+
 export function createMap({ container, isPlanned, onToggle, onSetMany, describe, onViewChange }) {
   const svg = node("svg", { class: "map-svg", role: "application", "aria-label": "Map of gardens" });
   // Coastline and highways are hundreds of points. They are built once, in
@@ -58,6 +63,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   let markers = []; // { kind: "base" | "here", lat, lon, ... }
   let markerPins = [];
   let picking = null; // a callback while placing the base by tapping the map
+  // A popup from a press-and-hold stays until the next tap, so its Edit can be
+  // reached with a mouse too. One from hovering goes when the pointer moves on.
+  let popupHeld = false;
   const popup = document.createElement("div");
   popup.className = "map-popup";
   popup.hidden = true;
@@ -169,16 +177,21 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       svgAppend(group);
     }
 
-    // The base and where you are, on top of everything: never decluttered away.
+    // The base, friends' houses and where you are, on top of everything: never
+    // decluttered away.
     markerPins = markers.map((marker) => {
       const at = geo.toScreen(view, geo.project(marker.lat, marker.lon));
-      return { id: `marker:${marker.kind}`, sx: at.x, sy: at.y, marker, place: marker };
+      return { id: markerId(marker), sx: at.x, sy: at.y, marker, place: marker };
     });
     for (const pin of markerPins) {
-      const group = node("g", { class: `map-marker map-marker-${pin.marker.kind}` });
+      const planned = pin.marker.kind === "friend" && isPlanned(pin.marker.id);
+      const group = node("g", { class: `map-marker map-marker-${pin.marker.kind}${planned ? " is-planned" : ""}` });
       if (pin.marker.kind === "base") {
         group.append(node("circle", { cx: pin.sx, cy: pin.sy, r: 13 }));
         group.append(node("text", { x: pin.sx, y: pin.sy + 4.5, "text-anchor": "middle" }, "B"));
+      } else if (pin.marker.kind === "friend") {
+        group.append(node("circle", { cx: pin.sx, cy: pin.sy, r: 14 }));
+        group.append(node("text", { x: pin.sx, y: pin.sy + 3.8, "text-anchor": "middle" }, pin.marker.initials));
       } else {
         group.append(node("circle", { class: "map-here-ring", cx: pin.sx, cy: pin.sy, r: 11 }));
         group.append(node("circle", { class: "map-here-dot", cx: pin.sx, cy: pin.sy, r: 5.5 }));
@@ -208,8 +221,9 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
     return { x: event.clientX - box.left, y: event.clientY - box.top };
   }
 
-  function showPopup(pin) {
+  function showPopup(pin, held = false) {
     popupId = pin.id;
+    popupHeld = held;
     popup.innerHTML = describe(pin.place);
     popup.hidden = false;
     placePopup();
@@ -239,6 +253,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
 
   function hidePopup() {
     popupId = null;
+    popupHeld = false;
     popup.hidden = true;
   }
 
@@ -287,7 +302,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
         const pin = hitAnything(gesture.start.x, gesture.start.y, TAP_RADIUS);
         if (pin) {
           gesture.held = true;
-          showPopup(pin);
+          showPopup(pin, true);
           navigator.vibrate?.(15);
         }
       }, HOLD_MS);
@@ -302,7 +317,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       if (event.pointerType === "mouse" && !area) {
         const pin = hitAnything(at.x, at.y, 14);
         if (pin && pin.id !== popupId) showPopup(pin);
-        else if (!pin && popupId) hidePopup();
+        else if (!pin && popupId && !popupHeld) hidePopup();
       }
       return;
     }
@@ -394,7 +409,10 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
         picking(lat, lon);
       } else {
         const pin = hitAnything(finished.start.x, finished.start.y, TAP_RADIUS);
-        if (pin?.marker) showPopup(pin);
+        // A friend's house is added and released like a garden; the base and
+        // here only say what they are.
+        if (pin?.marker?.kind === "friend") onToggle(pin.marker.id);
+        else if (pin?.marker) showPopup(pin);
         else if (pin) onToggle(pin.id);
       }
     }
@@ -404,7 +422,7 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
   svg.addEventListener("pointerup", (event) => endPointer(event, false));
   svg.addEventListener("pointercancel", (event) => endPointer(event, true));
   svg.addEventListener("pointerleave", (event) => {
-    if (event.pointerType === "mouse" && !pointers.size && popupId) hidePopup();
+    if (event.pointerType === "mouse" && !pointers.size && popupId && !popupHeld) hidePopup();
   });
   svg.addEventListener("contextmenu", (event) => event.preventDefault());
   svg.addEventListener(
@@ -477,10 +495,10 @@ export function createMap({ container, isPlanned, onToggle, onSetMany, describe,
       schedule();
     },
     refresh: schedule,
-    /** The base and where you are. Drawn on top, not selectable. */
+    /** The base, friends' houses and where you are. Drawn on top; friends can be tapped into the plan. */
     setMarkers(list) {
       markers = (list || []).filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lon));
-      if (popupId?.startsWith("marker:") && !markers.some((m) => `marker:${m.kind}` === popupId)) hidePopup();
+      if (popupId?.startsWith("marker:") && !markers.some((m) => markerId(m) === popupId)) hidePopup();
       schedule();
     },
     /** Put a point in the middle, zoomed in at least as far as `scale`. */

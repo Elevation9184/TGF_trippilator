@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" />
     <!-- Replaced by src/publish.py at publish time. -->
-    <meta name="build" content="20260918-2329" />
+    <meta name="build" content="20261029-2152" />
   </head>
   <body>
     <header>
@@ -59,6 +59,7 @@
       <div class="map-toolbar">
         <button id="map-select" type="button" aria-pressed="false">&#9645; Select area</button>
         <button id="map-fit" type="button">Fit</button>
+        <button id="map-add-friend" type="button" title="Add a friend's house to visit">+ Friend</button>
         <span id="map-count" class="map-count"></span>
       </div>
       <p id="map-base-hint" class="map-hint" hidden>
@@ -233,6 +234,41 @@
       </form>
     </dialog>
 
+    <dialog id="friend-dialog" class="base-dialog">
+      <form method="dialog">
+        <h2><span id="friend-badge" class="friend-badge" aria-hidden="true">?</span> <span id="friend-title">A friend's house</span></h2>
+        <p class="note">
+          Somewhere of your own to visit on the day. It stays on this phone only: never part of
+          the published site or the notes export. Finding the address and measuring road
+          distances asks OpenStreetMap's free services, once.
+        </p>
+        <div class="row">
+          <label class="narrow">Initials
+            <input id="friend-initials" type="text" maxlength="3" autocapitalize="characters" autocomplete="off" placeholder="GK" />
+          </label>
+          <label>Name
+            <input id="friend-name" type="text" autocomplete="off" placeholder="Graham" />
+          </label>
+        </div>
+        <label for="friend-address">Address</label>
+        <div class="base-search">
+          <input id="friend-address" type="search" autocomplete="off" enterkeyhint="search"
+            placeholder="e.g. 12 Devon Street West, New Plymouth" />
+          <button id="friend-lookup" type="button">Find</button>
+        </div>
+        <ul id="friend-results" class="base-results"></ul>
+        <label>Staying about
+          <select id="friend-minutes"></select>
+        </label>
+        <p id="friend-status" class="note" role="status"></p>
+        <menu>
+          <button id="friend-delete" type="button" class="link">Delete</button>
+          <button value="cancel">Cancel</button>
+          <button id="friend-save" type="button" class="primary" disabled>Save</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="preselect-dialog" class="preselect" data-pane="gardens">
       <div class="ps-head">
         <h2 tabindex="-1" autofocus>Preselect</h2>
@@ -349,6 +385,14 @@
 
         <section class="ps-gardens" aria-label="Gardens">
           <p id="ps-estimate" class="ps-estimate"></p>
+          <!-- Friends' houses: never filtered, always here to tick in. -->
+          <div class="ps-friends">
+            <div class="ps-friends-head">
+              <span class="ps-subhead">Friends</span>
+              <button id="ps-add-friend" type="button" class="link">+ Add a friend</button>
+            </div>
+            <ul id="ps-friends-list" class="ps-list"></ul>
+          </div>
           <div class="ps-list-head">
             <span id="ps-shown" class="note"></span>
             <button id="ps-choose-all" type="button">Choose all</button>

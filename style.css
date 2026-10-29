@@ -8,6 +8,8 @@
   --green: #2f5d3a;
   --centuria: #7a3e9d;
   --fringe: #1f6f8b;
+  /* Friends' houses: a colour no festival uses, so a house never reads as a garden. */
+  --friend: #a8436b;
   --radius: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -20,6 +22,7 @@
     --green: #7cc08f;
     --centuria: #c79bea;
     --fringe: #79c6de;
+    --friend: #e58fb3;
   }
 }
 * { box-sizing: border-box; }
@@ -668,6 +671,17 @@ body.map-mode .controls { display: none !important; }
 .ps-released { font-style: italic; }
 .ps-subhead { margin: 0.9rem 0 0.3rem; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
 .ps-help { margin-top: 0.9rem; }
+/* Friends sit above the gardens, unfiltered, each with its own Edit. */
+.ps-friends { margin-bottom: 0.7rem; }
+.ps-friends-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.ps-friends-head .ps-subhead { margin: 0.2rem 0 0.3rem; }
+.ps-friends-head .link { font-size: 0.82rem; }
+.ps-friend { display: flex; align-items: center; gap: 0.25rem; }
+.ps-friend label { flex: 1; min-width: 0; }
+.ps-friend input { accent-color: var(--friend); }
+.ps-friend.is-locked label { background: color-mix(in srgb, var(--friend) 12%, transparent); }
+.ps-friend > .link { font-size: 0.8rem; padding: 0.35rem 0.4rem; }
+.ps-friends-empty { padding: 0.15rem 0.45rem; font-size: 0.8rem; }
 
 /* ------------------------------------------------------- garden edit ---- */
 .ed-search { display: flex; gap: 0.5rem; align-items: center; }
@@ -826,6 +840,34 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
   .map-marker-base text { fill: #151a17; }
 }
 
+/* A friend's house: initials in a rose circle. Outlined until it is in the plan,
+   then filled, as a garden goes green. Never greyed: filters are for gardens. */
+.map-marker-friend circle { fill: var(--card); stroke: var(--friend); stroke-width: 2.5; }
+.map-marker-friend text { fill: var(--friend); font-size: 9.5px; font-weight: 800; letter-spacing: -0.02em; pointer-events: none; }
+.map-marker-friend.is-planned circle { fill: var(--friend); stroke: var(--card); }
+.map-marker-friend.is-planned text { fill: #fff; }
+.friend-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.2rem;
+  border-radius: 999px;
+  background: var(--friend);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex: 0 0 auto;
+}
+@media (prefers-color-scheme: dark) {
+  .map-marker-friend.is-planned text { fill: #151a17; }
+  .friend-badge { color: #151a17; }
+}
+.map-popup-nr.map-popup-friend { color: var(--friend); }
+.map-popup-actions { margin-top: 0.35rem; pointer-events: auto; }
+.map-popup-actions .link { padding: 0.2rem 0; font-size: 0.82rem; }
+
 .plan-tools { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
 .plan-tools button {
   font: inherit;
@@ -888,6 +930,8 @@ header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space
   color: var(--ink);
   width: 100%;
 }
+#friend-initials { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+#friend-minutes { width: 100%; }
 .base-dialog menu { justify-content: space-between; }
 .base-dialog menu .link { margin-right: auto; }
 #map-base-hint { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }

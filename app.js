@@ -21,11 +21,15 @@ import * as position from "./position.js";
 import * as handoff from "./handoff.js";
 import * as testmode from "./testmode.js";
 import * as nearby from "./nearby.js";
+import * as friends from "./friends.js";
 
 // ?tm=y walks a day through from a desk. Read once, never stored: see testmode.js.
 const TEST_MODE = testmode.isOn(location.search);
 
 const STORE_BASE = "tgo.base.v1";
+// Friends' houses: initials, address, position and measured road distances.
+// Like the base, only ever on this device.
+const STORE_FRIENDS = "tgo.friends.v1";
 // Where you were at the last GPS fix. Kept so a reopened app still knows.
 const STORE_HERE = "tgo.here.v1";
 const STORE_VISITS = "tgo.visits.v1";
@@ -81,6 +85,7 @@ const state = {
   model: null,
   byId: new Map(),
   base: null,
+  friends: [],
   visits: new Map(),
   pre: new Preselection(),
   done: null,
@@ -144,6 +149,9 @@ async function load() {
   state.bundle = await response.json();
   state.model = new engine.TravelModel(state.bundle);
   state.byId = new Map(state.bundle.places.map((p) => [p.id, p]));
+  // Friends join the places a plan can hold, but never the bundle's list.
+  state.friends = friends.valid(readStore(STORE_FRIENDS, []));
+  for (const friend of state.friends) state.byId.set(friend.id, friends.asPlace(friend));
   state.base = readStore(STORE_BASE, null);
   state.visits = new Map(Object.entries(readStore(STORE_VISITS, {})));
   const view = readStore(STORE_VIEW, {}) || {};
@@ -164,8 +172,15 @@ async function load() {
       /* Nothing stored to remove. */
     }
   }
-  // Road costs measured for the base or here earlier, back into the model.
-  if (state.base?.travel) state.model.setPersonal(position.BASE_ID, state.base.travel);
+  // Road costs measured for the base, friends or here earlier, back into the
+  // model. Oldest first: each table holds the legs to points measured before
+  // it, so a later one restores the legs between the two. Here last, since its
+  // table reaches all of them.
+  const tables = friends.measuredOrder([
+    ...(state.base ? [{ ...state.base, id: position.BASE_ID }] : []),
+    ...state.friends,
+  ]);
+  for (const point of tables) state.model.setPersonal(point.id, point.travel);
   if (state.here?.travel) state.model.setPersonal(position.HERE_ID, state.here.travel);
 }
 
@@ -232,7 +247,7 @@ function sortedPlaces() {
   return [...state.bundle.places].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function fillPlaceSelect(select, { includeBase = false, includeHere = false } = {}) {
+function fillPlaceSelect(select, { includeBase = false, includeHere = false, includeFriends = false } = {}) {
   const previous = select.value;
   select.innerHTML = "";
   const add = (value, text) => {
@@ -243,8 +258,15 @@ function fillPlaceSelect(select, { includeBase = false, includeHere = false } = 
   };
   if (includeBase) add("@base", state.base ? `B · your base (${state.base.name})` : "B · your base (not set yet)");
   if (includeHere) add("@here", state.here ? `Here (${position.ageText(state.here.at)})` : "Here (press Here first)");
+  if (includeFriends) for (const friend of sortedFriends()) add(friend.id, `${friends.displayName(friend)} (friend)`);
   for (const place of sortedPlaces()) add(place.id, place.name);
   if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+}
+
+/** Starting from can be a friend's house; heading to is for gardens and the base. */
+function fillStartSelects() {
+  fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true, includeFriends: true });
+  fillPlaceSelect(el("destination"), { includeBase: true });
 }
 
 /** One entry per town that has gardens, with how many. */
@@ -289,7 +311,7 @@ function checkDay() {
 
 /** A small marker for a garden on a given day: closed, or days unknown. */
 function openingTag(place, day) {
-  if (!day) return "";
+  if (!day || place.kind === "friend") return "";
   const open = opening.openOn(place, day);
   if (open === true) return "";
   if (open === false) {
@@ -370,12 +392,17 @@ function setDone(ids) {
  * through the afternoon. Undoing it puts it back.
  */
 function markVisited(id, visited) {
-  setVisit(id, { visited, visitedOn: visited ? today() : null });
+  // A friend's house is seen for today only: tomorrow it can be called on again.
+  if (!friends.isFriendId(id)) setVisit(id, { visited, visitedOn: visited ? today() : null });
   planAfterSeen(id, visited);
   savePlan();
   // A test run moves on with the day: seeing a garden puts you at it.
   if (TEST_MODE) moveToPretendPlace();
   render();
+}
+
+function isSeen(id) {
+  return friends.isFriendId(id) ? doneIds().includes(id) : Boolean(visitOf(id).visited);
 }
 
 function planAfterSeen(id, visited) {
@@ -959,6 +986,30 @@ function renderPreselect(matches = criteriaMatches(), pool = poolPlaces(matches)
   el("ps-release-all").disabled = lockedShown === 0;
   el("ps-estimate").textContent = planEstimate();
   el("max-km-value").textContent = km(el("max-km").value);
+  el("ps-friends-list").innerHTML = state.friends.length
+    ? sortedFriends().map(friendRow).join("")
+    : '<li class="note ps-friends-empty">None yet. A friend\'s house can join a day like a garden.</li>';
+}
+
+/** A friend in Preselect: never filtered out, ticked in and out like a garden. */
+function friendRow(friend) {
+  const locked = state.pre.isLocked(friend.id);
+  const seen = doneIds().includes(friend.id);
+  const place = friends.asPlace(friend);
+  return `
+    <li class="ps-row ps-friend${locked ? " is-locked" : ""}">
+      <label>
+        <input type="checkbox" data-friend-lock="${friend.id}"${locked ? " checked" : ""} />
+        <span class="ps-nr"><span class="friend-badge">${escapeHtml(friend.initials)}</span></span>
+        <span class="ps-text">
+          <span class="ps-name">${escapeHtml(place.name)}</span>
+          <span class="ps-meta">${place.minutes} min${seen ? ' · <span class="tag tag-anchor">seen today</span>' : ""}${
+            friend.address ? ` · ${escapeHtml(friend.address)}` : ""
+          }</span>
+        </span>
+      </label>
+      <button type="button" class="link" data-friend-edit="${friend.id}">Edit</button>
+    </li>`;
 }
 
 /** A guide, not a promise: the shortest loop through everything locked in. */
@@ -969,7 +1020,12 @@ function planEstimate() {
   const route = origin
     ? memoRoute("day", chosen, origin, true, () => engine.buildRoute(chosen, origin, state.model, true))
     : memoRoute("day-free", chosen, null, null, () => engine.routeFromBestFirstStop(chosen, state.model));
-  const gardens = `${chosen.length} garden${chosen.length === 1 ? "" : "s"} locked in`;
+  const houses = chosen.filter((place) => place.kind === "friend").length;
+  const count = chosen.length - houses;
+  const gardens =
+    `${count} garden${count === 1 ? "" : "s"}` +
+    (houses ? ` and ${houses} friend${houses === 1 ? "" : "s"}` : "") +
+    " locked in";
   const exact = route.method === "exact";
   const distance = `${exact ? "" : "roughly "}${Math.round(route.totalKm)} km`;
   const shape = origin
@@ -1006,7 +1062,9 @@ function pickedPlaces() {
 /** The gardens listed for editing: a scope, narrowed by any search. */
 function editListPlaces(pool = poolPlaces()) {
   const scope = el("ed-scope").value;
-  const base = scope === "all" ? state.bundle.places : scope === "plan" ? lockedPlaces() : pool;
+  // Gardens only: a friend's house has no ratings or festival details to edit.
+  const inPlan = () => lockedPlaces().filter((place) => place.kind !== "friend");
+  const base = scope === "all" ? state.bundle.places : scope === "plan" ? inPlan() : pool;
   const search = el("ed-search").value;
   return base.filter((place) => matchesSearch(place, search)).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1302,6 +1360,7 @@ function wireEditor() {
 /** What a press-and-hold on a pin shows: enough to confirm it is the right one. */
 function describePlace(place) {
   if (place.kind === "base" || place.kind === "here") return describeMarker(place);
+  if (place.kind === "friend") return describeFriend(place);
   const locked = state.pre.isLocked(place.id);
   const what = locked
     ? "in your plan · tap to release"
@@ -1387,12 +1446,15 @@ function renderMap(matches) {
   state.map.setPlaces(visible, state.bundle.places);
   state.map.setMarkers(mapMarkers());
   const count = (wanted) => drawn.filter((entry) => entry.state === wanted).length;
+  const friendsIn = state.friends.filter((friend) => state.pre.isLocked(friend.id)).length;
   el("map-count").textContent =
-    `${count("locked")} in plan · ${count("available")} available · ${count("greyed")} greyed`;
+    `${count("locked") + friendsIn} in plan · ${count("available")} available · ${count("greyed")} greyed`;
 }
 
 function togglePlan(id) {
-  state.pre.toggle(id, criteriaMatches());
+  if (!friends.isFriendId(id)) state.pre.toggle(id, criteriaMatches());
+  else if (state.pre.isLocked(id)) state.pre.forget(id);
+  else state.pre.lock([id]);
   savePlan();
   render();
 }
@@ -1455,6 +1517,14 @@ function wire() {
   });
 
   el("preselect-dialog").addEventListener("change", (event) => {
+    const friendBox = event.target.closest("[data-friend-lock]");
+    if (friendBox) {
+      if (friendBox.checked) state.pre.lock([friendBox.dataset.friendLock]);
+      else state.pre.forget(friendBox.dataset.friendLock);
+      savePlan();
+      render();
+      return;
+    }
     const box = event.target.closest("[data-lock]");
     if (!box) return;
     if (box.checked) state.pre.lock([box.dataset.lock]);
@@ -1493,8 +1563,14 @@ function wire() {
       writeStore(STORE_SENT, state.sent);
       togglePlan(target.dataset.remove);
     }
-    else if (target.dataset.visited) markVisited(target.dataset.visited, !visitOf(target.dataset.visited).visited);
+    else if (target.dataset.visited) markVisited(target.dataset.visited, !isSeen(target.dataset.visited));
     else if (target.dataset.detail) showStopDetail(target.dataset.detail);
+    else if (target.dataset.friendEdit) {
+      // From a map popup, a stop's details or Preselect: the form goes on top.
+      if (el("stop-dialog").open) el("stop-dialog").close();
+      state.map?.hidePopup();
+      openFriendDialog(target.dataset.friendEdit);
+    }
   });
 
   // Ticking off by itself is a switch, because if it misbehaves in a car park
@@ -1569,13 +1645,17 @@ function wire() {
     // Starting the day's plan again starts Google Maps' record again too.
     state.sent = null;
     writeStore(STORE_SENT, null);
-    state.pre.release([...state.pre.locked], criteriaMatches());
+    const locked = [...state.pre.locked];
+    state.pre.release(locked.filter((id) => !friends.isFriendId(id)), criteriaMatches());
+    // Friends are not filtered, so there is nothing for them to linger in.
+    locked.filter(friends.isFriendId).forEach((id) => state.pre.forget(id));
     savePlan();
     render();
   };
   el("clear-plan").addEventListener("click", clearPlan);
 
   wireWhere();
+  wireFriends();
 }
 
 /* -------------------------------------------------- following the day -- */
@@ -1783,6 +1863,17 @@ function hideToast() {
 function showStopDetail(id) {
   const place = state.byId.get(id);
   if (!place) return;
+  if (place.kind === "friend") {
+    el("stop-detail").innerHTML = `
+      <div class="nr"><span class="friend-badge">${escapeHtml(place.initials)}</span></div>
+      <h3>${escapeHtml(place.name)}</h3>
+      <p>${escapeHtml(place.address || "No address saved")}</p>
+      <p class="note">A friend's house · about ${place.minutes} min · kept on this phone only</p>
+      <p><a href="${mapsLink(place)}" target="_blank" rel="noopener">Directions in Google Maps &#8599;</a>
+        · <button type="button" class="link" data-friend-edit="${place.id}">Edit</button></p>`;
+    el("stop-dialog").showModal();
+    return;
+  }
   const badges = amenityBadges(place);
   el("stop-detail").innerHTML = `
     <div class="nr">${escapeHtml(engine.mapLabel(place))}</div>
@@ -1858,6 +1949,15 @@ function gardensWithCoordinates() {
   return state.bundle.places.filter((place) => place.lat != null && place.lon != null);
 }
 
+/**
+ * Friends whose road distances are measured. Only these are measured to from
+ * the base or another friend: a leg into a point with no table of its own would
+ * start one, and a table holding a single leg reads as measured everywhere.
+ */
+function measuredFriends(exceptId = null) {
+  return state.friends.filter((friend) => friend.travel && friend.id !== exceptId).map(friends.asPlace);
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1874,16 +1974,17 @@ async function fetchJson(url) {
 async function measureBase() {
   const base = state.base;
   if (!base) return false;
-  const gardens = gardensWithCoordinates();
+  // Friends' houses too, once they have tables of their own to hold the legs.
+  const targets = [...gardensWithCoordinates(), ...measuredFriends()];
   const point = { lat: base.lat, lon: base.lon };
   try {
     const [out, back] = await Promise.all([
-      fetchJson(position.roadTableUrl(point, gardens, "to")),
-      fetchJson(position.roadTableUrl(point, gardens, "from")),
+      fetchJson(position.roadTableUrl(point, targets, "to")),
+      fetchJson(position.roadTableUrl(point, targets, "from")),
     ]);
     if (state.base !== base || base.lat !== point.lat || base.lon !== point.lon) return null;
-    const to = position.roadTableRows(out, gardens, "to");
-    const from = position.roadTableRows(back, gardens, "from");
+    const to = position.roadTableRows(out, targets, "to");
+    const from = position.roadTableRows(back, targets, "from");
     if (!Object.keys(to).length) return false;
     base.travel = { to, from };
     base.measuredAt = new Date().toISOString();
@@ -1925,6 +2026,7 @@ async function measureHere() {
   const targets = gardensWithCoordinates();
   const base = baseOrigin();
   if (base) targets.push(base);
+  targets.push(...state.friends.map(friends.asPlace));
   try {
     const json = await fetchJson(position.roadTableUrl({ lat: here.lat, lon: here.lon }, targets, "to"));
     const to = position.roadTableRows(json, targets, "to");
@@ -2047,6 +2149,7 @@ function updateWhere() {
 function mapMarkers() {
   const markers = [];
   if (state.base) markers.push({ kind: "base", ...state.base });
+  for (const friend of state.friends) markers.push(friends.asPlace(friend));
   if (state.here) markers.push({ kind: "here", ...state.here });
   return markers;
 }
@@ -2148,8 +2251,7 @@ function saveBase() {
   // A test run starts at the base, as a real day does.
   if (TEST_MODE) moveToPretendPlace();
   el("base-dialog").close();
-  fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
-  fillPlaceSelect(el("destination"), { includeBase: true });
+  fillStartSelects();
   el("origin").value = "@base";
   saveView();
   startPlacingBase();
@@ -2181,6 +2283,7 @@ function showBaseProgress(text) {
 /** On the map, B where the lookup put it; a tap moves it. Measuring starts at once. */
 function startPlacingBase() {
   document.querySelector('[data-mode="map"]').click();
+  placingFriend = null;
   el("map-base-hint").hidden = false;
   el("map-base-text").innerHTML = "Is <strong>B</strong> in the right place? Tap where your base is to move it.";
   state.map.setPicking((lat, lon) => {
@@ -2201,11 +2304,340 @@ function startPlacingBase() {
   render();
 }
 
-/** Done never waits: any measuring carries on in the background. */
+/** Done never waits: any measuring carries on in the background. Friends too. */
 function finishPlacingBase() {
+  placingFriend = null;
   if (el("map-base-hint").hidden) return;
   state.map?.setPicking(null);
   el("map-base-hint").hidden = true;
+}
+
+/* -------------------------------------------------------------- friends -- */
+
+/*
+ * A friend's house is added the way the base is: found by address, confirmed
+ * on the map, measured once. It then behaves like a garden in a plan, without
+ * ever appearing among the gardens: see friends.js.
+ */
+
+function friendById(id) {
+  return state.friends.find((friend) => friend.id === id) || null;
+}
+
+function sortedFriends() {
+  return [...state.friends].sort((a, b) => a.initials.localeCompare(b.initials));
+}
+
+function saveFriends() {
+  writeStore(STORE_FRIENDS, state.friends);
+}
+
+/** One friend changed: stored, and seen by every list and route. */
+function putFriend(friend) {
+  const known = state.friends.some((other) => other.id === friend.id);
+  state.friends = known
+    ? state.friends.map((other) => (other.id === friend.id ? friend : other))
+    : [...state.friends, friend];
+  saveFriends();
+  state.byId.set(friend.id, friends.asPlace(friend));
+}
+
+/**
+ * A friend's legs out of every stored table: the house moved, or is gone. The
+ * model is cleared separately; this stops an old leg coming back on a reload.
+ */
+function forgetFriendLegs(id) {
+  const strip = (travel) => {
+    delete travel?.to?.[id];
+    delete travel?.from?.[id];
+  };
+  if (state.base?.travel) {
+    strip(state.base.travel);
+    writeStore(STORE_BASE, state.base);
+  }
+  for (const friend of state.friends) strip(friend.travel);
+  saveFriends();
+  if (state.here?.travel) {
+    strip(state.here.travel);
+    writeStore(STORE_HERE, state.here);
+  }
+  strip(state.hereMeasured?.travel);
+  state.model.setPersonal(id, {});
+  travelChanged();
+}
+
+/** What a press-and-hold on a friend's circle shows. */
+function describeFriend(place) {
+  const friend = friendById(place.id);
+  const what = doneIds().includes(place.id)
+    ? "seen today"
+    : state.pre.isLocked(place.id)
+      ? "in your plan · tap to release"
+      : "tap to add to your plan";
+  return `
+    <div class="map-popup-nr map-popup-friend">${escapeHtml(place.initials)} · a friend's house</div>
+    <div class="map-popup-name">${escapeHtml(place.name)}</div>
+    ${place.address ? `<div class="map-popup-address">${escapeHtml(place.address)}</div>` : ""}
+    <div class="map-popup-meta">about ${place.minutes} min · ${
+      friend?.travel ? "road distances measured" : "road distances estimated"
+    } · ${what}</div>
+    <div class="map-popup-actions"><button type="button" class="link" data-friend-edit="${place.id}">Edit</button></div>`;
+}
+
+/* The friend form. Initials and a position are needed; the rest is optional. */
+
+let editingFriend = null;
+let pendingFriendSpot = null;
+let friendAddressEdited = false;
+
+function minutesWords(minutes) {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = minutes / 60;
+  const words = { 1: "1 hour", 1.5: "1½ hours", 2: "2 hours", 3: "3 hours" };
+  return words[hours] || `${minutes} min`;
+}
+
+function openFriendDialog(id = null) {
+  const friend = id ? friendById(id) : null;
+  editingFriend = friend ? friend.id : null;
+  pendingFriendSpot = null;
+  friendAddressEdited = false;
+  el("friend-title").textContent = friend ? "Edit friend" : "Add a friend";
+  el("friend-initials").value = friend?.initials || "";
+  el("friend-name").value = friend?.name || "";
+  el("friend-address").value = friend?.address || "";
+  el("friend-results").innerHTML = "";
+  const minutes = String(friend?.minutes ?? friends.DEFAULT_MINUTES);
+  const select = el("friend-minutes");
+  if (![...select.options].some((option) => option.value === minutes)) select.append(new Option(`${minutes} min`, minutes));
+  select.value = minutes;
+  el("friend-delete").hidden = !friend;
+  el("friend-delete").textContent = "Delete";
+  delete el("friend-delete").dataset.armed;
+  updateFriendForm();
+  el("friend-dialog").showModal();
+}
+
+/** Save is ready once the initials are right and there is a position to save. */
+function updateFriendForm(message = null) {
+  const initials = friends.cleanInitials(el("friend-initials").value);
+  el("friend-badge").textContent = initials || "?";
+  const existing = editingFriend ? friendById(editingFriend) : null;
+  const problem = initials ? friends.initialsProblem(initials, state.friends, editingFriend) : "";
+  const placed = Boolean(pendingFriendSpot) || Boolean(existing && !friendAddressEdited);
+  el("friend-save").disabled = !initials || Boolean(problem) || !placed;
+  let text = "";
+  if (!initials && !placed) text = "Their initials, then the address: press Find.";
+  else if (problem) text = problem;
+  else if (!placed) text = "Type the address and press Find.";
+  else if (!initials) text = "Add their initials: two or three letters.";
+  el("friend-status").textContent = message ?? text;
+}
+
+async function lookUpFriendAddress() {
+  const address = el("friend-address").value.trim();
+  if (address.length < 4) return updateFriendForm("Type a little more of the address.");
+  pendingFriendSpot = null;
+  el("friend-results").innerHTML = "";
+  updateFriendForm("Looking it up…");
+  try {
+    const candidates = position.addressCandidates(await fetchJson(position.addressSearchUrl(address)));
+    if (!candidates.length) {
+      return updateFriendForm("No match in the festival area. Try the street and town only.");
+    }
+    el("friend-results").innerHTML = candidates
+      .map((c, i) => `<li><button type="button" data-candidate="${i}"${i === 0 ? ' class="is-on"' : ""}>${escapeHtml(c.label)}</button></li>`)
+      .join("");
+    el("friend-results")._candidates = candidates;
+    pendingFriendSpot = candidates[0];
+    updateFriendForm(
+      candidates.length === 1
+        ? "Found it. Press Save, then check the circle on the map."
+        : "Best match selected. Tap another if it's wrong, then Save."
+    );
+  } catch {
+    updateFriendForm("The address service could not be reached. Try again when there is signal.");
+  }
+}
+
+function saveFriend() {
+  const initials = friends.cleanInitials(el("friend-initials").value);
+  if (friends.initialsProblem(initials, state.friends, editingFriend)) return updateFriendForm();
+  const existing = editingFriend ? friendById(editingFriend) : null;
+  const spot = pendingFriendSpot;
+  if (!spot && !existing) return updateFriendForm();
+  const friend = existing
+    ? { ...existing }
+    : { id: friends.newFriendId(initials, state.friends), addedAt: new Date().toISOString() };
+  friend.initials = initials;
+  friend.name = el("friend-name").value.trim();
+  friend.minutes = Number(el("friend-minutes").value) || friends.DEFAULT_MINUTES;
+  if (spot) {
+    friend.address = spot.label;
+    friend.lat = spot.lat;
+    friend.lon = spot.lon;
+    friend.source = "address";
+    delete friend.travel;
+    delete friend.measuredAt;
+  }
+  putFriend(friend);
+  if (spot && existing) forgetFriendLegs(friend.id);
+  el("friend-dialog").close();
+  fillStartSelects();
+  if (spot) startPlacingFriend(friend.id);
+  else render();
+}
+
+/** Two presses, the second within a few seconds: there is no undo. */
+function deleteFriendPressed() {
+  const button = el("friend-delete");
+  const friend = editingFriend ? friendById(editingFriend) : null;
+  if (!friend) return;
+  if (!button.dataset.armed) {
+    button.dataset.armed = "yes";
+    button.textContent = `Delete ${friend.initials}? Press again`;
+    setTimeout(() => {
+      if (!button.dataset.armed) return;
+      delete button.dataset.armed;
+      button.textContent = "Delete";
+    }, 4000);
+    return;
+  }
+  el("friend-dialog").close();
+  deleteFriend(friend.id);
+}
+
+/** Gone from this phone: the plan, today's day, Google Maps' record and every table. */
+function deleteFriend(id) {
+  const friend = friendById(id);
+  if (!friend) return;
+  if (placingFriend === id) finishPlacingBase();
+  forgetFriendLegs(id);
+  state.friends = state.friends.filter((other) => other.id !== id);
+  saveFriends();
+  state.byId.delete(id);
+  state.pre.forget(id);
+  savePlan();
+  if (state.done?.ids?.includes(id)) setDone(doneIds());
+  state.sent = handoff.forgetSent(state.sent, [id], today());
+  writeStore(STORE_SENT, state.sent);
+  if (state.track.atId === id || state.track.headingId === id) {
+    state.track = { ...state.track, ...(state.track.atId === id ? { atId: null, since: null } : {}), headingId: null };
+    writeStore(STORE_TRACK, state.track);
+  }
+  fillStartSelects();
+  saveView();
+  render();
+  showToast(`${friend.initials} deleted from this phone.`);
+}
+
+let placingFriend = null;
+let friendMeasureTimer = 0;
+
+/** On the map, the circle where the lookup put it; a tap moves it. Measuring starts at once. */
+function startPlacingFriend(id) {
+  const friend = friendById(id);
+  if (!friend) return;
+  if (el("preselect-dialog").open) el("preselect-dialog").close();
+  document.querySelector('[data-mode="map"]').click();
+  placingFriend = id;
+  const label = `<strong>${escapeHtml(friend.initials)}</strong>`;
+  el("map-base-hint").hidden = false;
+  el("map-base-text").innerHTML = `Is ${label} in the right place? Tap where the house is to move it.`;
+  state.map.setPicking((lat, lon) => {
+    const current = friendById(id);
+    if (!current) return;
+    const moved = { ...current, lat, lon, source: "map" };
+    delete moved.travel;
+    delete moved.measuredAt;
+    putFriend(moved);
+    forgetFriendLegs(id);
+    el("map-base-text").innerHTML = `${label} moved. Tap again to adjust, or press Done.`;
+    measureFriendSoon(id, 1500);
+    render();
+  });
+  state.map.centreOn(friend.lat, friend.lon, 60);
+  measureFriendSoon(id);
+  render();
+}
+
+function measureFriendSoon(id, delay = 0) {
+  clearTimeout(friendMeasureTimer);
+  showBaseProgress("Measuring road distances in the background…");
+  friendMeasureTimer = setTimeout(async () => {
+    const ok = await measureFriend(id);
+    if (ok === null) return; // moved meanwhile; a newer measurement is on its way
+    showBaseProgress(ok ? "Road distances measured ✓" : "Routing service unreachable: estimates for now.");
+  }, delay);
+}
+
+/**
+ * Road distances between a friend's house and every garden, the base and the
+ * other friends, both ways, once. Like measureBase: null when it moved while
+ * waiting, false when the service could not be reached.
+ */
+async function measureFriend(id) {
+  const friend = friendById(id);
+  if (!friend) return false;
+  const point = { lat: friend.lat, lon: friend.lon };
+  const targets = [...gardensWithCoordinates(), ...measuredFriends(id)];
+  if (state.base?.travel) targets.push(baseOrigin());
+  try {
+    const [out, back] = await Promise.all([
+      fetchJson(position.roadTableUrl(point, targets, "to")),
+      fetchJson(position.roadTableUrl(point, targets, "from")),
+    ]);
+    const now = friendById(id);
+    if (!now || now.lat !== point.lat || now.lon !== point.lon) return null;
+    const to = position.roadTableRows(out, targets, "to");
+    const from = position.roadTableRows(back, targets, "from");
+    if (!Object.keys(to).length) return false;
+    putFriend({ ...now, travel: { to, from }, measuredAt: new Date().toISOString() });
+    state.model.setPersonal(id, { to, from });
+    travelChanged();
+    // Here's last table was measured without this house where it now is.
+    state.hereMeasured = null;
+    if (state.here) measureHere();
+    render();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function wireFriends() {
+  const select = el("friend-minutes");
+  for (const minutes of friends.VISIT_CHOICES) select.append(new Option(minutesWords(minutes), String(minutes)));
+  el("map-add-friend").addEventListener("click", () => openFriendDialog());
+  el("ps-add-friend").addEventListener("click", () => openFriendDialog());
+  el("friend-initials").addEventListener("input", () => {
+    const clean = friends.cleanInitials(el("friend-initials").value);
+    if (clean !== el("friend-initials").value) el("friend-initials").value = clean;
+    updateFriendForm();
+  });
+  // A changed address must be looked up again, or Save would keep the old spot.
+  el("friend-address").addEventListener("input", () => {
+    friendAddressEdited = true;
+    pendingFriendSpot = null;
+    el("friend-results").innerHTML = "";
+    updateFriendForm();
+  });
+  el("friend-address").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      lookUpFriendAddress();
+    }
+  });
+  el("friend-lookup").addEventListener("click", lookUpFriendAddress);
+  el("friend-results").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-candidate]");
+    if (!button) return;
+    pendingFriendSpot = el("friend-results")._candidates[Number(button.dataset.candidate)];
+    el("friend-results").querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b === button));
+    updateFriendForm("Press Save, then check the circle on the map.");
+  });
+  el("friend-save").addEventListener("click", saveFriend);
+  el("friend-delete").addEventListener("click", deleteFriendPressed);
 }
 
 function wireWhere() {
@@ -2282,8 +2714,7 @@ function wireWhere() {
     state.model.setPersonal(position.BASE_ID, {});
     travelChanged();
     el("base-dialog").close();
-    fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
-    fillPlaceSelect(el("destination"), { includeBase: true });
+    fillStartSelects();
     render();
   });
   el("map-base-done").addEventListener("click", finishPlacingBase);
@@ -2369,8 +2800,7 @@ if ("serviceWorker" in navigator) {
 
 load()
   .then(() => {
-    fillPlaceSelect(el("origin"), { includeBase: true, includeHere: true });
-    fillPlaceSelect(el("destination"), { includeBase: true });
+    fillStartSelects();
     fillAreaSelect();
     fillOpenOnSelect();
     wire();
